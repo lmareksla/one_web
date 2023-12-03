@@ -1,0 +1,3 @@
+[submodule "pxdata"]
+	path = src/pxdata
+	url = git@github.com:lmareksla/pxdata.git
