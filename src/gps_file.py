@@ -27,6 +27,8 @@ class GpsFile(object):
         
         self.data = pd.DataFrame()
 
+        self._done_load = False                         # check whether load was done and successful
+
         # stat
         self.frame_count = 0
 
@@ -49,7 +51,8 @@ class GpsFile(object):
         try:
             self._open_log()
         except Exception as e:
-            log_warning(f"failed to open log {os.path.join(self.log_file_path, self.log_file_name)}: {e}")
+            log_warning(f"failed to open log {os.path.join(self.log_file_path, self.log_file_name)}: {e}",
+                        self.log_file, self.do_print, self.do_log)
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self.log_file:
@@ -62,21 +65,25 @@ class GpsFile(object):
         log_info(f"loading file: {self.file_in_path_name}", self.log_file, self.do_print, self.do_log)
 
         if not self.file_in_path_name:
-            raise_runtime_error(f"GpsFile.load - fail to load file: {self.file_in_path_name}.")
+            raise_runtime_error(f"GpsFile.load - fail to load file: {self.file_in_path_name}.", self.log_file, self.do_print, self.do_log)
 
         try:
             self.data = pd.read_csv(self.file_in_path_name, sep=",")             
             self._correct_data_for_anomalies()     
             self.statistics()
         except Exception as e:
-            raise_runtime_error(f"GpsFile.load - fail to load data from: {self.file_in_path_name}. {e}")
+            raise_runtime_error(f"GpsFile.load - fail to load data from: {self.file_in_path_name}. {e}", self.log_file, self.do_print, self.do_log)
+
+        self._done_load = True
+
 
     """correct data for anomalies:
         * duplicities
     """
     def _correct_data_for_anomalies(self):
         if self.data.empty:
-            raise_runtime_error(f"GpsFile._correct_data_for_anomalies - failed to correct for anomalies, because data is empty.")
+            raise_runtime_error(f"GpsFile._correct_data_for_anomalies - failed to correct for anomalies, because data is empty.",
+                                self.log_file, self.do_print, self.do_log)
         try:
             row_prev = None
             idx_bad_rows = []
@@ -107,7 +114,8 @@ class GpsFile(object):
                 self.data = self.data.reset_index(drop=True)
 
         except Exception as e:
-            raise_runtime_error(f"GpsFile._correct_data_for_anomalies - failed to correct for anomalies. {e}")
+            raise_runtime_error(f"GpsFile._correct_data_for_anomalies - failed to correct for anomalies. {e}",
+                                self.log_file, self.do_print, self.do_log)
 
     def extract_acq_time(self, frame_order_id):
 
@@ -116,7 +124,7 @@ class GpsFile(object):
         try:
             timestamp, temperature, pix_count_short, pix_count_long, pix_count_saved, pix_count_unsaved, error_id = self.get_frame_meas_info(frame_order_id)
         except Exception as e:
-            raise_runtime_error(f"Fail to extract acq time: {frame_order_id}. {e}")
+            raise_runtime_error(f"Fail to extract acq time: {frame_order_id}. {e}", self.log_file, self.do_print, self.do_log)
 
         pixels_per_ms = float(pix_count_long - pix_count_short) / float(self.long_acquisition_time - self.short_acquisition_time)
 
@@ -141,12 +149,12 @@ class GpsFile(object):
 
     def get_frame_meas_info(self, frame_order_id):
         if self.data.empty:
-            raise_runtime_error("get_frame_meas_info : No data loaded.")
+            raise_runtime_error("get_frame_meas_info : No data loaded.", self.log_file, self.do_print, self.do_log)
 
         try:
             row = self.data.iloc[frame_order_id]
         except Exception as e:
-            raise_runtime_error(f"Can not find frame with given id: {frame_order_id}. {e}")
+            raise_runtime_error(f"Can not find frame with given id: {frame_order_id}. {e}", self.log_file, self.do_print, self.do_log)
 
         if len(row) >= 6:
             timestamp = convert_str_timestapmp_to_datetime(row["TIME"])
@@ -157,14 +165,14 @@ class GpsFile(object):
             pix_count_unsaved = int(row.iloc[5])
             error_id = str(row.iloc[6])
         else:
-            raise_runtime_error("Fail to get frame, not all info is included.")
+            raise_runtime_error("Fail to get frame, not all info is included.", self.log_file, self.do_print, self.do_log)
 
         return [timestamp, temperature, pix_count_short, pix_count_long, pix_count_saved, pix_count_unsaved, error_id]
 
 
     def statistics(self):
         if self.data.empty:
-            raise_runtime_error("statistics : No data loaded.")
+            raise_runtime_error("statistics : No data loaded.", self.log_file, self.do_print, self.do_log)
 
         self.frame_count = len(self.data)
            
@@ -196,6 +204,9 @@ class GpsFile(object):
 
         log_info(msg,self.log_file, self.do_print, self.do_log)
         return msg
+
+    def get_done_load(self):
+        return self._done_load
 
 if __name__ == '__main__':
 

@@ -57,6 +57,8 @@ class DataFile(object):
 
         self.size_data_line = 0                         # size of data line (should be 218 characters)
 
+        self._done_load = False                         # check whether load was done and successful
+
         # stat
         self.count_err_load_pix = 0                     # count of failed pixels in load
         self.count_err_integrity_check_pix = 0          # count of pixels refused for fail in data packet integrity check       
@@ -167,6 +169,8 @@ class DataFile(object):
             self._process_data_stream(data, timestamp_list, data_idx_shift)
 
         self._evaluate_final_ok_stat()
+
+        self._done_load = True
 
         infile.close()
 
@@ -569,6 +573,9 @@ class DataFile(object):
 
         log_info(msg, self.log_file, self.do_print, self.do_log)
         return msg
+
+    def get_done_load(self):
+        return self._done_load
 
 if __name__ == '__main__':
 

@@ -20,6 +20,7 @@ List of tests which are implemented:
  1) **basics of data file** - testing loading of data file with outpu into log
  2) **basics of data info file** - testing loading of data info file with outpu into log
  3) **basics of gps file** - testing loading of gps file with outpu into log
+ 4) **basics of data linker** - testing loading of gps file with outpu into log
 
 -------------------------------------------------------------------------------
 Creating New Reference Files

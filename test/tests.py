@@ -101,6 +101,7 @@ class SystemTests(unittest.TestCase):
     def test_001(self):  self.output_test("001")
     def test_002(self):  self.output_test("002")
     def test_003(self):  self.output_test("003")
+    def test_004(self):  self.output_test("004")
 
 
 def remove_old_files_directories():

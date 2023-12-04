@@ -1,3 +1,6 @@
 [submodule "pxdata"]
 	path = src/pxdata
 	url = git@github.com:lmareksla/pxdata.git
+[submodule "clusterer"]
+	path = src/clusterer
+	url = git@github.com:advacam/clusterer.git

@@ -1,0 +1,4 @@
+[INFO]   loading file: ./devel/data/dosimeter_gps_info.csv
+[ERROR]    2023-09-27 02:26:55.000 time jump in gps info 3730.0 s
+[ERROR]    2023-09-27 05:22:04.000 time jump in gps info 2769.0 s
+[ERROR]    2023-09-27 12:34:05.000 time jump in gps info 8110.0 s
