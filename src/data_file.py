@@ -35,10 +35,10 @@ class DataPacket(object):
 
 class DataFile(object):
     """docstring for DataFile"""
-    def __init__(self, file_in_name_path, log_path="", log_name="log.txt"):
+    def __init__(self, file_in_path_name, log_path="", log_name="log.txt"):
         super(DataFile, self).__init__()
 
-        self.file_in_name_path = file_in_name_path
+        self.file_in_path_name = file_in_path_name
 
         self.batch_separator = '55AA55AA5555AA55AA55'   # separates data batches which are evaluated and with whole frames should 
 
@@ -102,7 +102,7 @@ class DataFile(object):
         self.log_file = open(os.path.join(self.log_file_path, self.log_file_name), "w")
 
     def load(self):
-        log_info(f"loading file: {self.file_in_name_path}", self.log_file, self.do_print, self.do_log)
+        log_info(f"loading file: {self.file_in_path_name}", self.log_file, self.do_print, self.do_log)
 
         # Define the separator string - separation of two measurements, but not necessarily has to appear
         start_separ_line =  '00000000000000000000'
@@ -111,9 +111,9 @@ class DataFile(object):
         self._find_size_of_data_line()
 
         try:
-            infile = open(self.file_in_name_path, "r", encoding="ascii")
+            infile = open(self.file_in_path_name, "r", encoding="ascii")
         except:
-            log_error(f"can not open input file {self.file_in_name_path}")
+            log_error(f"can not open input file {self.file_in_path_name}")
             exit()
 
         csv_reader = csv.reader(infile)
@@ -173,9 +173,9 @@ class DataFile(object):
     """gets the size of data line"""
     def _find_size_of_data_line(self):
         try:
-            infile = open(self.file_in_name_path, "r", encoding="ascii")
+            infile = open(self.file_in_path_name, "r", encoding="ascii")
         except:
-            log_error(f"can not open input file {self.file_in_name_path}", self.log_file, self.do_print, self.do_log)
+            log_error(f"can not open input file {self.file_in_path_name}", self.log_file, self.do_print, self.do_log)
             exit()        
         csv_reader = csv.reader(infile)
 
