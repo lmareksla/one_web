@@ -458,3 +458,6 @@ if __name__ == '__main__':
 
         data_linker = DataLinker()
         data_linker.link_data_info_gps(data_file, info_file, gps_file, frames_ext, do_print_info=True)
+
+        for frame_ext in frames_ext:
+            print(frame_ext.gps)

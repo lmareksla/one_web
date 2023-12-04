@@ -25,4 +25,4 @@ if __name__ == '__main__':
     data_info_file = DataInfoFile(data_info_file_path_name, "./test/out/test_002/")
     data_info_file.do_print = False
     data_info_file.load()
-    data_info_file.print()
+    data_info_file.print(do_full_data_print=True)

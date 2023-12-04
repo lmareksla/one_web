@@ -257,14 +257,17 @@ class DataInfoFile(object):
         self.duration_sec = datetime_diff_seconds(self.timestamp_last,self.timestamp_first)
         self.duration_hours = self.duration_sec/3600.
 
-    def print(self, do_print_data=True):
+    def print(self, do_print_data=True, do_full_data_print=False):
         
         msg =  "\n"
         msg += "===============================================================\n"
         msg += "DATA\n"
         msg += "\n"
         if not self.data.empty and do_print_data:
-            msg += f"{self.data}\n"
+            if do_full_data_print:
+                msg += f"{self.data.to_string()}\n"
+            else:
+                msg += f"{self.data}\n"
         msg += "\n"
         msg += "INFO\n"
         msg += "\n"

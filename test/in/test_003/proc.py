@@ -25,4 +25,4 @@ if __name__ == '__main__':
     gps_file = GpsFile(gps_file_path_name, "./test/out/test_003/")
     gps_file.do_print = False
     gps_file.load()
-    gps_file.print()
+    gps_file.print(do_full_data_print=True)

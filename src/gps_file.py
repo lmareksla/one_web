@@ -16,9 +16,10 @@ from llcp import *
 from decoder import *
 from log import *
 
-sys.path.append("src/pxdata/src")
+sys.path.append("src")
 
 from utils import *
+from gps_spice import *
 
 class GpsFile(object):
     """docstring for GpsFile"""
@@ -27,7 +28,7 @@ class GpsFile(object):
         
         self.data = pd.DataFrame()
 
-        self._done_load = False                         # check whether load was done and successful
+        self._done_load = False            # check whether load was done and successful
 
         # stat
         self.frame_count = 0
@@ -70,6 +71,7 @@ class GpsFile(object):
         try:
             self.data = pd.read_csv(self.file_in_path_name, sep=",")             
             self._correct_data_for_anomalies()     
+            self._extend_data_with_lat_long_alt()
             self.statistics()
         except Exception as e:
             raise_runtime_error(f"GpsFile.load - fail to load data from: {self.file_in_path_name}. {e}", self.log_file, self.do_print, self.do_log)
@@ -144,30 +146,30 @@ class GpsFile(object):
 
         return desired_ms/1000.0
 
-    def get_frame_acq_time(self, frame_order_id):
-        return self.data.at[frame_order_id, "time_acq_s"]
-
-    def get_frame_meas_info(self, frame_order_id):
+    """extension of data with converted J2000 into latitude longitude and altitude based on spice"""
+    def _extend_data_with_lat_long_alt(self):
         if self.data.empty:
-            raise_runtime_error("get_frame_meas_info : No data loaded.", self.log_file, self.do_print, self.do_log)
+            raise_runtime_error(f"GpsFile._extend_data_with_lat_long_alt - failed beacuse data was not loaded", self.log_file, self.do_print, self.do_log)
+ 
+        longitude_key = "longitude_deg"
+        latitude_key = "latitude_deg"
+        altitude_key =  "altitude_km"
 
-        try:
-            row = self.data.iloc[frame_order_id]
-        except Exception as e:
-            raise_runtime_error(f"Can not find frame with given id: {frame_order_id}. {e}", self.log_file, self.do_print, self.do_log)
+        # extend data with new columns
+        long_lat_alt_keys = [longitude_key, latitude_key, altitude_key]
 
-        if len(row) >= 6:
-            timestamp = convert_str_timestapmp_to_datetime(row["TIME"])
-            temperature = float(row.iloc[1])
-            pix_count_short = int(row.iloc[2])
-            pix_count_long = int(row.iloc[3])
-            pix_count_saved = int(row.iloc[4])
-            pix_count_unsaved = int(row.iloc[5])
-            error_id = str(row.iloc[6])
-        else:
-            raise_runtime_error("Fail to get frame, not all info is included.", self.log_file, self.do_print, self.do_log)
+        for key in long_lat_alt_keys:
+            if key not in self.data:
+                self.data[key] = 0.0
 
-        return [timestamp, temperature, pix_count_short, pix_count_long, pix_count_saved, pix_count_unsaved, error_id]
+        # calculate lat, long and alt
+        for idx, row in self.data.iterrows():
+            vec_J2000 = np.array([row["J2000_X (m)"], row["J2000_Y (m)"], row["J2000_Z (m)"]])
+            vec_altlatlong = transform_J2000_to_ITRF93_altlatlong(vec_J2000, row["TIME"])
+
+            self.data.at[idx, altitude_key] = vec_altlatlong[0]
+            self.data.at[idx, latitude_key] = vec_altlatlong[1]
+            self.data.at[idx, longitude_key] = vec_altlatlong[2]
 
 
     def statistics(self):
@@ -182,14 +184,17 @@ class GpsFile(object):
         self.duration_sec = datetime_diff_seconds(self.timestamp_last,self.timestamp_first)
         self.duration_hours = self.duration_sec/3600.
 
-    def print(self, do_print_data=True):
+    def print(self, do_print_data=True, do_full_data_print=False):
         
         msg =  "\n"
         msg += "===============================================================\n"
         msg += "DATA\n"
         msg += "\n"
         if not self.data.empty and do_print_data:
-            msg += f"{self.data}\n"
+            if do_full_data_print:
+                msg += f"{self.data.to_string()}\n"
+            else:
+                msg += f"{self.data}\n"
         msg += "\n"
         msg += "INFO\n"
         msg += "\n"
@@ -219,4 +224,4 @@ if __name__ == '__main__':
 
         gps_file = GpsFile(gps_file_path_name)
         gps_file.load()
-        gps_file.print()
+        gps_file.print(do_full_data_print = True)

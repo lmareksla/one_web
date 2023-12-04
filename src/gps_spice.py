@@ -1,4 +1,3 @@
-
 import os
 import sys
 import logging
@@ -16,8 +15,6 @@ import matplotlib.image as mpimg
 
 sys.path.append("/src/")
 from gps_file import *
-
-
 
 spice.furnsh('./spice_kernels/earth_200101_990825_predict.bpc')
 spice.furnsh('./spice_kernels/naif0012.tls')
@@ -40,13 +37,12 @@ def transform_rec_lla(vec_ret):
     vec_altlonlat[2] *= 57.2957795
     return vec_altlonlat
 
-def transform_J2000_to_ITRF93_lla(vec_J2000, timestamp):
+def transform_J2000_to_ITRF93_altlatlong(vec_J2000, timestamp):
     et = spice.str2et(timestamp)
     matrix_rot = spice.pxform("J2000","ITRF93", et )
     vec_ITRF93 = transformation(matrix_rot, vec_J2000)
-    vec_ITRF93_lla = transform_rec_lla(vec_ITRF93)
-    return vec_ITRF93_lla
-
+    vec_ITRF93_all = transform_rec_lla(vec_ITRF93)
+    return vec_ITRF93_all
 
 
 def plot_longlat(long_list_deg, lat_list_deg, color="C1", ax=None, fig=None):
@@ -116,7 +112,7 @@ if __name__ == '__main__':
             timestamp = row[1]["TIME"]
             timestamp_list.append(timestamp)
 
-            vec_ITRF93_lla = transform_J2000_to_ITRF93_lla(vec_J2000 ,timestamp)
+            vec_ITRF93_lla = transform_J2000_to_ITRF93_altlatlong(vec_J2000 ,timestamp)
 
             if timestamp == " 2023-09-27 17:09:24.000":
                 print(f"{timestamp}\t{vec_J2000}\t{vec_ITRF93_lla}")
