@@ -4,3 +4,9 @@
 [submodule "clusterer"]
 	path = src/clusterer
 	url = git@github.com:advacam/clusterer.git
+[submodule "noisy_pixel"]
+	path = src/noisy_pixels
+	url = git@github.com:lmareksla/noisy_pixels.git
+[submodule "src/pydpe"]
+	path = src/pydpe
+	url = git@github.com:lmareksla/dpe_pypostproc.git
