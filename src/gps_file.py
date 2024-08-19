@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import math
 from matplotlib.colors import LogNorm
 import numpy as np
+import json
+import copy
 
 sys.path.append("src/pxdata/src")
 
@@ -41,6 +43,7 @@ class GpsFile(object):
 
         self.count_err_duplicities = 0     # count of duplicities in the file   
         self.count_err_time_jumps = 0      # count of time jumps in the data -> more that 5s diff   
+        self.count_err_wrong_val = 0
 
         # log and print
         self.do_log = True
@@ -109,6 +112,13 @@ class GpsFile(object):
 
                     self.count_err_time_jumps += 1
 
+                # wrong values
+                if not row["TIME"] or pd.isna(row["J2000_X (m)"]) or pd.isna(row["J2000_Y (m)"]) or pd.isna(row["J2000_Z (m)"]):
+                    log_error(f"{timestamp} wrong values {row}" ,self.log_file, self.do_print, self.do_log)
+
+                    self.count_err_wrong_val += 1
+                    idx_bad_rows.append(idx)
+
                 row_prev = row
 
             if idx_bad_rows:
@@ -149,7 +159,10 @@ class GpsFile(object):
     """extension of data with converted J2000 into latitude longitude and altitude based on spice"""
     def _extend_data_with_lat_long_alt(self):
         if self.data.empty:
-            raise_runtime_error(f"GpsFile._extend_data_with_lat_long_alt - failed beacuse data was not loaded", self.log_file, self.do_print, self.do_log)
+            raise_runtime_error(f"GpsFile._extend_data_with_lat_long_alt - failed because data was not loaded", self.log_file, self.do_print, self.do_log)
+        
+        log_info("Extending data with lat long alt",self.log_file, self.do_print, self.do_log)
+
  
         longitude_key = "longitude_deg"
         latitude_key = "latitude_deg"
@@ -164,12 +177,15 @@ class GpsFile(object):
 
         # calculate lat, long and alt
         for idx, row in self.data.iterrows():
+            progress_bar(len(self.data), idx)
+            
             vec_J2000 = np.array([row["J2000_X (m)"], row["J2000_Y (m)"], row["J2000_Z (m)"]])
-            vec_altlatlong = transform_J2000_to_ITRF93_altlatlong(vec_J2000, row["TIME"])
+            vec_altlonglat = transform_J2000_to_ITRF93_altlonglat(vec_J2000, row["TIME"])  # spice
+            # vec_altlonglat = transform_J2000_to_altlonglat_astropy(vec_J2000, row["TIME"].strip())   # astropy - 4x longer calc
 
-            self.data.at[idx, altitude_key] = vec_altlatlong[0]
-            self.data.at[idx, latitude_key] = vec_altlatlong[1]
-            self.data.at[idx, longitude_key] = vec_altlatlong[2]
+            self.data.at[idx, altitude_key] = vec_altlonglat[0]
+            self.data.at[idx, longitude_key] = vec_altlonglat[1]
+            self.data.at[idx, latitude_key] = vec_altlonglat[2]
 
 
     def statistics(self):
@@ -204,6 +220,7 @@ class GpsFile(object):
         msg += f"duration_hours:             {self.duration_hours:.2f} h\n"  
         msg += "\n"        
         msg += f"count_err_duplicities:      {self.count_err_duplicities}\n"
+        msg += f"count_err_wrong_val:        {self.count_err_wrong_val}\n"        
         msg += f"count_err_time_jumps:       {self.count_err_time_jumps}\n"        
         msg += "===============================================================\n"
 
@@ -213,6 +230,33 @@ class GpsFile(object):
     def get_done_load(self):
         return self._done_load
 
+    def export_stat(self, file_out_path_name):
+        data_out = self.create_meta_data_dict()
+
+        with open(file_out_path_name, "w") as json_file:
+            json.dump(data_out, json_file, indent=4)
+
+    def create_meta_data_dict(self):
+        members_dict = {}
+        
+        # remove some unwanted
+        keys_skip = ["log_file", "data"]
+
+        # convert specail objects formats to standard python formats
+        for key, value in self.__dict__.items():
+
+            if key in keys_skip:
+                continue
+
+            if isinstance(value, np.int64):
+                members_dict[key] = int(value)
+            elif isinstance(value, datetime.datetime):
+                members_dict[key] =  value.isoformat() 
+            else:
+                members_dict[key] = value
+
+        return members_dict
+
 if __name__ == '__main__':
 
     case = 1
@@ -221,7 +265,10 @@ if __name__ == '__main__':
     if case == 1:
 
         gps_file_path_name = "devel/data/dosimeter_gps_info.csv" 
+        file_out_path_name = "./devel/export/gps_file.json"
 
         gps_file = GpsFile(gps_file_path_name)
         gps_file.load()
         gps_file.print(do_full_data_print = True)
+
+        gps_file.export_stat(file_out_path_name)

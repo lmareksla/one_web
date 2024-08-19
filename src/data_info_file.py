@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import math
 from matplotlib.colors import LogNorm
 import numpy as np
+import json
+import copy
 
 sys.path.append("src/pxdata/src")
 
@@ -16,25 +18,27 @@ from llcp import *
 from decoder import *
 from log import *
 
+
 sys.path.append("src/pxdata/src")
 
 from utils import *
 
 class DataInfoFile(object):
     """docstring for DataInfoFile"""
-    def __init__(self, file_in_path_name, log_path="", log_name="log.txt"):
+    def __init__(self, file_in_path_name, file_settings_path_name = "", log_path="", log_name="log.txt"):
         self.file_in_path_name = file_in_path_name
-        
+        self.file_settings_path_name = file_settings_path_name
+
         self.data = pd.DataFrame()
 
         self.do_remove_error_data = True   # removes all data which includes error id
 
-        self._done_load = False                         # check whether load was done and successful
+        self._done_load = False            # check whether load was done and successful
 
         # stat
         self.frame_count = 0
         self.error_count = 0
-        self.saturated_count = 0 # not error id and with unsaved pixels
+        self.saturated_count = 0           # not error id and with unsaved pixels
         self.pix_saved_total = 0
         self.pix_unsaved_total = 0
 
@@ -57,6 +61,7 @@ class DataInfoFile(object):
 
         self.count_err_duplicities = 0     # count of duplicities in the file   
         self.count_err_bad_temperature = 0 
+        self.count_err_no_saved_pixels = 0 
 
         # acq time, defaults base don the settings of measurement
         self.long_acquisition_time = 1000
@@ -92,6 +97,8 @@ class DataInfoFile(object):
             raise_runtime_error(f"DataInfoFile.load - fail to load file: {self.file_in_path_name}.", self.log_file, self.do_print, self.do_log)
 
         try:
+            self._load_meas_settings()
+
             self.data = pd.read_csv(self.file_in_path_name, sep=",") 
             if "time_acq_s" not in self.data:
                 self.data["time_acq_s"] = 0.0              
@@ -103,10 +110,31 @@ class DataInfoFile(object):
 
         self._done_load = True
 
-    """correct data for anomalies:
+    def _load_meas_settings(self):
+
+        if not self.file_settings_path_name:
+            return
+
+        try:
+            with open(self.file_settings_path_name, "r") as file_json:
+                meas_set_data = json.load(file_json)
+
+                self.long_acquisition_time = meas_set_data["long_acquisition_time"]
+                self.short_acquisition_time = meas_set_data["short_acquisition_time"]
+                self.desired_occupancy = meas_set_data["desired_occupancy"]
+                self.default_acquisition_time = meas_set_data["default_acquisition_time"]
+                self.max_acq_time = meas_set_data["max_acq_time"]
+                self.min_acq_time = meas_set_data["min_acq_time"] 
+
+        except Exception as e:
+            print(f"Can not load meas settings. Using default. {e}")
+
+    """
+    correct data for anomalies:
         * weird temperature values
         * duplicities
         * OPTIONAL - errors
+        * no saved pixels
     """
     def _correct_data_for_anomalies(self):
         if self.data.empty:
@@ -118,6 +146,7 @@ class DataInfoFile(object):
             for idx, row in self.data.iterrows():
                 timestamp = row["TIMESTAMP"]
                 temperature = row["Temp"]
+                count_saved_pix = row["N°pixel_saved"]
 
                 # errors
                 if self.do_remove_error_data and not pd.isna(row["Error_id"]):
@@ -125,7 +154,6 @@ class DataInfoFile(object):
 
                     self.error_count += 1
                     idx_bad_rows.append(idx)
-
 
                 # duplicity
                 elif row_prev is not None and row_prev["TIMESTAMP"] == timestamp:
@@ -140,6 +168,14 @@ class DataInfoFile(object):
 
                     self.count_err_bad_temperature += 1
                     idx_bad_rows.append(idx)  
+
+                # no saved pixels - data ussually have something
+                elif count_saved_pix == 0:
+                    log_error(f"{timestamp} no saved pixels: {count_saved_pix}",self.log_file, self.do_print, self.do_log)
+
+                    self.count_err_no_saved_pixels += 1
+                    idx_bad_rows.append(idx)  
+
 
                 row_prev = row
 
@@ -162,7 +198,6 @@ class DataInfoFile(object):
                 self.data.at[idx, "time_acq_s"] = self.extract_acq_time(idx)
         except Exception as e:
             raise_runtime_error(f"_add_acq_time : failed to add acq time to data. {e}", self.log_file, self.do_print, self.do_log)
-
 
     def extract_acq_time(self, frame_order_id):
 
@@ -215,7 +250,6 @@ class DataInfoFile(object):
             raise_runtime_error("Fail to get frame, not all info is included.", self.log_file, self.do_print, self.do_log)
 
         return [timestamp, temperature, pix_count_short, pix_count_long, pix_count_saved, pix_count_unsaved, error_id]
-
 
     def statistics(self):
 
@@ -301,6 +335,33 @@ class DataInfoFile(object):
         log_info(msg,self.log_file, self.do_print, self.do_log)
         return msg
 
+    def export_stat(self, file_out_path_name):
+        data_out = self.create_meta_data_dict()
+
+        with open(file_out_path_name, "w") as json_file:
+            json.dump(data_out, json_file, indent=4)
+
+    def create_meta_data_dict(self):
+        members_dict = {}
+        
+        # remove some unwanted
+        keys_skip = ["log_file", "data"]
+
+        # convert specail objects formats to standard python formats
+        for key, value in self.__dict__.items():
+
+            if key in keys_skip:
+                continue
+
+            if isinstance(value, np.int64):
+                members_dict[key] = int(value)
+            elif isinstance(value, datetime.datetime):
+                members_dict[key] =  value.isoformat() 
+            else:
+                members_dict[key] = value
+
+        return members_dict
+        
     def get_done_load(self):
         return self._done_load
 
@@ -312,7 +373,11 @@ if __name__ == '__main__':
     if case == 1:
 
         data_info_file_path_name = "devel/data/dosimeter_measure_info.csv" 
+        meas_settings_path_name = "devel/data/meas_settings.json"
+        file_out_path_name = "devel/export/data_info_file.json"
 
-        data_info_file = DataInfoFile(data_info_file_path_name)
+        data_info_file = DataInfoFile(data_info_file_path_name, meas_settings_path_name)
         data_info_file.load()
         data_info_file.print()
+        data_info_file.export_stat(file_out_path_name)
+

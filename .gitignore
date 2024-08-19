@@ -1,4 +1,13 @@
+bin
+devel
+
+.vscode
+
+LogFile.txt
+clstr.log
+log.txt
+.ret_val_dpe.txt
+
 test/out
 test_log*
 src/__pycache__
-devel

@@ -4,6 +4,7 @@ import logging
 import binascii
 import csv
 import datetime
+import json
 
 sys.path.append("src/pxdata/src")
 
@@ -35,10 +36,12 @@ class DataPacket(object):
 
 class DataFile(object):
     """docstring for DataFile"""
-    def __init__(self, file_in_path_name, log_path="", log_name="log.txt"):
+    def __init__(self, file_in_path_name, file_settings_path_name=None, file_global_conf_path_name=None, log_path="", log_name="log.txt"):
         super(DataFile, self).__init__()
 
         self.file_in_path_name = file_in_path_name
+        self.file_settings_path_name = file_settings_path_name
+        self.file_global_conf_path_name = file_global_conf_path_name
 
         self.batch_separator = '55AA55AA5555AA55AA55'   # separates data batches which are evaluated and with whole frames should 
 
@@ -52,12 +55,18 @@ class DataFile(object):
 
         self.do_integrity_check_of_data_pck = True      # control whether integrity check of data packets should be done
         self.do_decode_help_msg = False 
-        self.do_force_itot_count_mode = True
+        self.do_force_single_mode = True                # data can be only in one mode
         self.do_skip_empty_data_packets = True 
 
         self.size_data_line = 0                         # size of data line (should be 218 characters)
 
         self._done_load = False                         # check whether load was done and successful
+
+        self.meas_mode = Tpx3FrameMode.ITOT_COUNT       # expected measurement mode of data if do_force_single_mode is True
+
+        self.frame_id_global_ref =  0                   # global reference of frame id for the cases of frame id overflow (65k) 
+        self.frame_id_prev = -1                         # value of previous frame id to check overflow
+        self.frame_id_max = 65535                       # maximal value of frame id
 
         # stat
         self.count_err_load_pix = 0                     # count of failed pixels in load
@@ -84,6 +93,9 @@ class DataFile(object):
         self.count_all_data_pck = 0                     # count of all data packets
         self.count_all_frames = 0                       # count of all frames
 
+        # export
+        self.file_out_path = ""
+
         # log and print
         self.do_log = True
         self.do_print = True
@@ -103,8 +115,41 @@ class DataFile(object):
     def _open_log(self):
         self.log_file = open(os.path.join(self.log_file_path, self.log_file_name), "w")
 
+    def _load_meas_settings(self):
+
+        if self.file_settings_path_name is None:
+            return
+
+        try:
+            with open(self.file_settings_path_name, "r") as file_json:
+                meas_set_data = json.load(file_json)
+
+                self.meas_mode = Tpx3FrameMode(meas_set_data["meas_mode"])
+
+        except Exception as e:
+            print(f"Can not load meas settings. Using default. {e}")
+
+    def _load_meas_global_cofig(self):
+
+        if self.file_global_conf_path_name is None:
+            return
+
+        try:
+            with open(self.file_global_conf_path_name, "r") as file_json:
+                meas_set_data = json.load(file_json)
+
+                self.frame_id_global_ref = meas_set_data["frame_id_global_ref"]
+
+                self.frame_id_prev = self.frame_id_global_ref
+
+        except Exception as e:
+            print(f"Can not load global config. Using default. {e}")
+
     def load(self):
         log_info(f"loading file: {self.file_in_path_name}", self.log_file, self.do_print, self.do_log)
+
+        self._load_meas_settings()
+        # self._load_meas_global_cofig()
 
         # Define the separator string - separation of two measurements, but not necessarily has to appear
         start_separ_line =  '00000000000000000000'
@@ -170,9 +215,13 @@ class DataFile(object):
 
         self._evaluate_final_ok_stat()
 
+        # self.export_global_config(self.file_global_conf_path_name)
+
         self._done_load = True
 
         infile.close()
+
+        # exit(0)
 
     """gets the size of data line"""
     def _find_size_of_data_line(self):
@@ -308,9 +357,9 @@ class DataFile(object):
         data_packet.checksum_matched = byte_stream[idx+7]
         data_packet.timestamp        = timestamp 
 
-        # skip non itot+count frames
-        if self.do_force_itot_count_mode and data_packet.mode != Tpx3FrameMode.ITOT_COUNT:
-            log_warning(f"{timestamp}    skipping frame in mode {data_packet.mode}", self.log_file, self.do_print, self.do_log)
+        # skip wrong mode frames
+        if self.do_force_single_mode and data_packet.mode != self.meas_mode:
+            log_warning(f"{timestamp}    skipping frame in mode {data_packet.mode}, expected {self.meas_mode}", self.log_file, self.do_print, self.do_log)
             idx += 8
             return None, idx
            
@@ -412,11 +461,13 @@ class DataFile(object):
 
                         # stat
                         self.count_err_data_duplicity += 1  
+
                     # missing data packet in order                      
                     else:
                         log_error(f"corrupted frame {data_packet.frame_id} - missing packet: packet id {data_packet.packet_id} jump with respect to prev {data_packet_id_prev}: {data_packet.timestamp}",
-                                  self.log_file, self.do_print, self.do_log)                      
-                        idx_currupted_data_packets += list(range(idx - data_packet.packet_id+1, idx))  # idxs of previous data packets
+                                  self.log_file, self.do_print, self.do_log)     
+
+                        idx_currupted_data_packets += list(range( idx - (data_packet_id_prev+1) , idx))  # idxs of previous data packets
                         idx_currupted_data_packets.append(idx)
 
                         # stat
@@ -429,26 +480,30 @@ class DataFile(object):
                 is_currupted_frame = False
                 frame_id_ref = data_packet.frame_id
 
+                # check for missing terminator of previous frame
+                if data_packet_prev and not data_packet_prev.do_include_terminator:
+                    # check whether it was not already covered with other checks (missing 0 etc)
+                    if idx-1 not in idx_currupted_data_packets:
+                        log_error(f"corrupted frame {data_packet.frame_id} - packet id {data_packet.packet_id} is last but not terminator: {data_packet.timestamp}",
+                                self.log_file, self.do_print, self.do_log)
+
+                        prev_idx = idx-1
+                        idx_currupted_data_packets += list(range(prev_idx - data_packet_prev.packet_id+1, prev_idx+1))  # idxs of all data packets
+                        # idx_currupted_data_packets.append(prev_idx)
+
+                        # stat
+                        self.count_err_integrity_check_frames_term += 1
+
                 # check whether first data packet is with id 0 if not -> corrupted frame
                 if data_packet.packet_id != 0:
                     log_error(f"corrupted frame {data_packet.frame_id} - packet id {data_packet.packet_id} does not start with 0: {data_packet.timestamp}",
                               self.log_file, self.do_print, self.do_log)
 
                     is_currupted_frame = True
+                    idx_currupted_data_packets.append(idx)
                     
                     # stat
                     self.count_err_integrity_check_frames_zero += 1
-
-                # check for missing terminator
-                if data_packet_prev and not data_packet_prev.do_include_terminator:
-                    log_error(f"corrupted frame {data_packet.frame_id} - packet id {data_packet.packet_id} is last but not terminator: {data_packet.timestamp}",
-                              self.log_file, self.do_print, self.do_log)
-
-                    idx_currupted_data_packets += list(range(idx - data_packet.packet_id+1, idx+1))  # idxs of all data packets
-
-                    # stat
-                    self.count_err_integrity_check_frames_term += 1
-
 
             data_packet_prev = data_packet
             data_packet_id_prev = data_packet.packet_id
@@ -459,15 +514,21 @@ class DataFile(object):
     """removes data packets from list which were marked as part of corrupted frame"""
     def _correct_data_packtes(self, idx_currupted_data_packets):
         frame_id_ref = self.frames_data_packets[idx_currupted_data_packets[-1]].frame_id
-        for idx in reversed(idx_currupted_data_packets):
 
-            data_packet_corrupted = self.frames_data_packets[idx]
+        try:
+            for idx in reversed(idx_currupted_data_packets):
 
-            # stat
-            self.count_err_integrity_check_pix += data_packet_corrupted.n_pixels
-            self.count_err_integrity_check_data_pck += 1
+                data_packet_corrupted = self.frames_data_packets[idx]
 
-            self.frames_data_packets.pop(idx)                
+                # stat
+                self.count_err_integrity_check_pix += data_packet_corrupted.n_pixels
+                self.count_err_integrity_check_data_pck += 1
+
+                self.frames_data_packets.pop(idx)     
+        except Exception as e:
+            log_error(f"failed to remove all data packets {e}",
+                        self.log_file, self.do_print, self.do_log)  
+            exit(1)         
 
     def _convert_data_packets_into_frames(self):
         if len(self.frames_data_packets) == 0:
@@ -481,8 +542,13 @@ class DataFile(object):
         frame = self._create_frame_based_on_data_packet(self.frames_data_packets[0])     
         self.frames.append(frame)
 
+        # print(frame_id_ref)
+
         for data_packet in self.frames_data_packets:
+
             if data_packet.frame_id != frame_id_ref:
+                self.correct_globaly_frame_id_for_overflow(data_packet)
+                
                 frame = self._create_frame_based_on_data_packet(data_packet)
                 self.frames.append(frame)
 
@@ -497,6 +563,17 @@ class DataFile(object):
         frame.t_ref = data_packet.timestamp
         frame.id = data_packet.frame_id 
         return frame
+
+
+    def correct_globaly_frame_id_for_overflow(self, data_packet):
+        data_packet.frame_id += self.frame_id_global_ref
+
+        if data_packet.frame_id < self.frame_id_prev:
+            data_packet.frame_id += self.frame_id_max
+            self.frame_id_global_ref += self.frame_id_max
+
+        self.frame_id_prev = data_packet.frame_id
+
 
     def _evaluate_final_ok_stat(self):
         self.count_ok_frames = len(self.frames)
@@ -574,6 +651,47 @@ class DataFile(object):
         log_info(msg, self.log_file, self.do_print, self.do_log)
         return msg
 
+    def export_stat(self, file_out_path_name):
+        data_out = self.create_meta_data_dict()
+
+        with open(file_out_path_name, "w") as json_file:
+            json.dump(data_out, json_file, indent=4)
+
+    def export_global_config(self, file_out_path_name):
+        data_out = {"frame_id_global_ref" : self.frame_id_global_ref}
+        with open(file_out_path_name, "w") as json_file:
+            json.dump(data_out, json_file, indent=4)        
+
+    def export(self, file_out_path=""):
+        if file_out_path:
+            self.file_out_path = file_out_path
+        for frame in self.frames:
+            frame.export(self.file_out_path, self.file_out_path)
+
+    def create_meta_data_dict(self):
+        members_dict = {}
+
+        # remove some unwanted
+        keys_skip = ["log_file", "frames", "decoder", "frames_data_packets"]
+
+        # convert specail objects formats to standard python formats
+        for key, value in self.__dict__.items():
+
+            if key in keys_skip:
+                continue
+
+            if isinstance(value, np.int64):
+                members_dict[key] = int(value)
+            elif isinstance(value, datetime.datetime):
+                members_dict[key] =  value.isoformat() 
+            elif isinstance(value, Tpx3FrameMode):
+                members_dict[key] =  convert_tpx3_frame_mode_to_str(value)                 
+            else:
+                members_dict[key] = value
+
+        return members_dict
+
+
     def get_done_load(self):
         return self._done_load
 
@@ -585,6 +703,9 @@ if __name__ == '__main__':
     if case == 1:
 
         file_in_path_name = "./devel/data/dosimeter_image_packets.csv"
+        file_out_path_name = "./devel/export/data_file.json"
+
+
         data_file = DataFile(file_in_path_name)
         data_file.load()
 
@@ -594,6 +715,7 @@ if __name__ == '__main__':
             print(f"{idx}\t{frame.t_ref}\t{frame.id}\t{frame.mode}\t{n_pixels}")
 
         data_file.log_stat()
+        data_file.export_stat(file_out_path_name)
 
 
     if case == 2:
