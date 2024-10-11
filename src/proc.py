@@ -34,18 +34,17 @@ sys.path.append("src/pydpe/src")
 
 from clist import *
 
-"""handling all data processing - dirs, stages etc"""
 class ProcesingManager(object):
-    """docstring for ProcesingManager"""
+    """handling all data processing - dirs, stages etc"""
     def __init__(self, arg):
         super(ProcesingManager, self).__init__()
         self.arg = arg
         
 
 
-"""decodes and links frames with info and gps"""
 def decoding_and_linking_dir(dirs_raw_data, dir_proc, dir_proc_decode_name, dir_proc_link_name, 
                             do_multi_thread=True, do_gen_meas_info=True):
+    """decodes and links frames with info and gps"""
     
     # generate settings meas info
     dir_raw_data = os.path.dirname(dirs_raw_data[0])

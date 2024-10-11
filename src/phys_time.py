@@ -273,6 +273,7 @@ def process_frame_list(frame_list_path_name : str):
     # file_fig_path_name="", do_save_fig=False,
     # do_show=False):
 
+
 def plot_phys_time(clist : list, time_samplings_hours : list, dir_phys : str):
 
     does_coeff_kev_ugy, does_rate_coef_kev_ugy_h, flux_coeff = create_phys_factors(roi)
@@ -493,7 +494,6 @@ def plot_phys_time(clist : list, time_samplings_hours : list, dir_phys : str):
                                     file_fig_path_name=os.path.join(dir_phys_time, "dose_rate_sampling_time_log.png"),
                                     file_fig_opp_log_path_name= os.path.join(dir_phys_time, "dose_rate_sampling_time_lin.png"),
                                     file_json_path_name=os.path.join(dir_phys_time, "dose_rate_sampling_time.json"))
-
 
 
 if __name__ == "__main__":

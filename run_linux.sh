@@ -13,5 +13,4 @@ else
     exit 1
 fi
 
-# $PY_EXE  src/generate_meas_set_info.py
 $PY_EXE  src/proc.py

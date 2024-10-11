@@ -149,7 +149,7 @@ class DataFile(object):
         log_info(f"loading file: {self.file_in_path_name}", self.log_file, self.do_print, self.do_log)
 
         self._load_meas_settings()
-        # self._load_meas_global_cofig()
+        # self._load_meas_global_cofig() # uncomment this line if processing should account for gobal frame id and run single thread!
 
         # Define the separator string - separation of two measurements, but not necessarily has to appear
         start_separ_line =  '00000000000000000000'
