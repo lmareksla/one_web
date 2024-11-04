@@ -1,12 +1,196 @@
 import os
 import sys
 import logging
-import binascii
-import csv
+import functools
+from functools import wraps
+import inspect
+import warnings 
 import datetime
-import matplotlib.colors as mcolors
+import re
+import shutil
 import numpy as np
 
+import coloredlogs
+
+
+msg_level_intend = ""
+
+def log_entry_exit(func):
+    """logging entry and exit of given function"""
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        global msg_level_intend
+
+        logger_name = os.environ.get("DPE_GUI_LOG_NAME")
+        if logger_name is None:
+            logger_name = "__name__"
+
+        logger = logging.getLogger(logger_name)
+        class_name = args[0].__class__.__name__ if args else None
+        function_name = func.__name__
+        
+        func_name = {function_name}
+        if class_name:
+            func_name = f"{class_name}.{function_name}"
+
+        logger.debug(f"{msg_level_intend} -> {func_name}")
+        msg_out = f"{msg_level_intend} <- {func_name}"
+        msg_level_intend += " "
+
+        result = func(*args, **kwargs)
+
+        logger.debug(msg_out)
+        msg_level_intend = msg_level_intend[:-1]
+
+        return result
+    return wrapper
+
+
+def check(done_attr = None):
+    """ 
+    Checking specific attribute of class - bool set to true
+    TODO - general for any attribute and its value -> if not then not proceed
+    """ 
+
+    def wrapper(func):
+        @wraps(func)
+        def decorator(self, *args, **kwargs):
+            done = getattr(self, done_attr, None)  # Fetch the logger attribute from the instance
+
+            do_run_func = True
+            if done is not None and not done:
+                do_run_func = False
+
+            result = None
+            if do_run_func:
+                result = func(self, *args, **kwargs)
+
+            return result
+        return decorator
+    return wrapper    
+
+
+def get_logger_default_name(log_env_tag : str = "ONE_WEB_LOGGER"):
+    logger_name = os.environ.get(log_env_tag)
+    if logger_name is None:
+        logger_name = "__name__"
+    return logger_name
+
+def create_logger(  
+    logger_name : str =     "log", 
+    log_level : str =       "DEBUG", 
+    log_path_name : str =   "log.txt", 
+    log_env_tag : str =     "ONE_WEB_LOGGER"
+    ):
+    """
+    Creates logger.
+    """
+
+    os.environ[log_env_tag] = logger_name
+
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(log_level)
+    log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    formatter = logging.Formatter(log_format)
+
+    file_handler = logging.FileHandler(log_path_name)
+    file_handler.setLevel(log_level)  # Set the log level for the file handler
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(log_level)  # Set the log level for the stream handler
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
+
+    coloredlogs.install(level=log_level, logger=logger, fmt=log_format)
+
+    return logger
+
+def create_func_msg(msg : str, stack_level : int = 1):
+    """
+    creates fuction message incorrporating into the msg the name if the fuciotn and class
+    stack_level - defines the level of stack unwrapped
+    """
+
+    caller_frame = inspect.stack()[stack_level]
+    caller_function = caller_frame.function
+    caller_class = caller_frame.frame.f_locals.get('self').__class__.__name__
+    full_message = f"{caller_function}: {msg}"
+    if caller_class:
+        full_message = f"{caller_class}.{full_message}"
+    return full_message
+
+def raise_runtime_log(  msg : str,    
+                        logger : logging.Logger):
+
+    full_message = create_func_msg(msg, 2)
+    if logger is not None:
+        logger.error(full_message)
+    raise RuntimeError(full_message)
+
+def raise_type_log(  msg : str,    
+                        logger : logging.Logger):
+
+    full_message = create_func_msg(msg, 2)
+    if logger is not None:
+        logger.error(full_message)
+    raise TypeError(full_message)
+
+def raise_exception_log(msg : str,  
+                        logger : logging.Logger):
+
+    full_message = create_func_msg(msg, 2)
+    if logger is not None:    
+        logger.error(full_message)
+    raise Exception(full_message)
+
+def log_debug(  
+    msg : str,    
+    logger : logging.Logger
+    ):
+
+    full_message = create_func_msg(msg, 2)
+    if logger is not None:    
+        logger.debug(full_message)
+
+def log_warning(
+    msg : str, 
+    logger : logging.Logger
+    ):
+
+    full_message = create_func_msg(msg, 2)
+    if logger is not None:    
+        logger.warning(full_message)
+
+def log_error(  
+    msg : str,    
+    logger : logging.Logger
+    ):
+
+    full_message = create_func_msg(msg, 2)
+    if logger is not None:    
+        logger.error(full_message)
+
+def hold():
+    print("holding - press anything")
+    a = input()    
+
+def to_snake_case(name : str):
+    """ 
+    Converts camelCase or PascalCase to snake_case
+    """
+    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+    snake_case_name = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+    return snake_case_name    
+
+def is_number(s):
+    try:
+        float(s)  # Try to convert the string to a float
+        return True
+    except ValueError:
+        return False    
 
 def convert_str_timestapmp_to_datetime(timestamp_str):
     try:
@@ -15,7 +199,6 @@ def convert_str_timestapmp_to_datetime(timestamp_str):
     except Exception as e:
         log_error(f"failed to covert |{timestamp_str}| into datetime: {e}")
         return None
-
 
 def datetime_diff_seconds(datetime_1st, datetime_2nd):
     return (datetime_1st - datetime_2nd).total_seconds()        

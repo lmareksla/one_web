@@ -10,4 +10,4 @@ log.txt
 
 test/out
 test_log*
-src/__pycache__
+*_pycache_*

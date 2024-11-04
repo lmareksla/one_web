@@ -8,6 +8,7 @@ import multiprocessing
 import shutil
 import json
 import zipfile
+import threading
 
 sys.path.append("src/pxdata/src")
 
@@ -28,231 +29,349 @@ from gps_file import *
 from data_linker import *
 from mask import *
 from clusterer import *
-from dpe import *
 
 sys.path.append("src/pydpe/src")
 
 from clist import *
 
-class ProcesingManager(object):
-    """handling all data processing - dirs, stages etc"""
-    def __init__(self, arg):
-        super(ProcesingManager, self).__init__()
-        self.arg = arg
-        
 
-
-def decoding_and_linking_dir(dirs_raw_data, dir_proc, dir_proc_decode_name, dir_proc_link_name, 
-                            do_multi_thread=True, do_gen_meas_info=True):
-    """decodes and links frames with info and gps"""
+class ProcessingManager(object):
+    """
+    Handling all data processing - dirs, stages etc.
+    """
     
-    # generate settings meas info
-    dir_raw_data = os.path.dirname(dirs_raw_data[0])
-    cmd = f"python src/generate_meas_set_info.py {dir_raw_data}"
-    os.system(cmd)
-        
-    # create export directories
-    os.makedirs(dir_proc, exist_ok=True) 
+    def __init__(
+        self
+        ,dir_data_root : str =              "/home/lukas/file/analysis/one_web/data/new/"
+        ,dir_raw_name : str =               "raw"
+        ,dir_proc_name : str =              "proc"
+        ,dir_proc_decode_name : str =       "00_decode"
+        ,dir_proc_link_name : str =         "01_link"   
+        ,dir_proc_mask_name : str =         "02_mask"
+        ,dir_proc_clusterer_name : str =    "03_clusterer"    
+        ,dir_proc_dpe_name : str =          "04_dpe"
+        ,dir_proc_phys_name : str =         "05_phys"   
+        ,dir_excluded : list =              []    
+        ,roi : list =                       [[62, 192], [62, 192]]
 
-    if do_multi_thread:
+        ,mask_fixed_pattern_path : str =    "/home/lukas/file/analysis/one_web/data/proc/mask_fixed_pattern.txt"
+        ,do_multi_thread : bool =           True
+        ):
+        
+        super(ProcessingManager, self).__init__()
+                
+        self.dir_data_root = dir_data_root
+
+        self.dir_raw_name = dir_raw_name              
+        self.dir_proc_name = dir_proc_name             
+
+        self.dir_proc_decode_name = dir_proc_decode_name      
+        self.dir_proc_link_name = dir_proc_link_name            
+        self.dir_proc_mask_name = dir_proc_mask_name        
+        self.dir_proc_clusterer_name = dir_proc_clusterer_name       
+        self.dir_proc_dpe_name = dir_proc_dpe_name         
+        self.dir_proc_phys_name = dir_proc_phys_name        
+
+        self.dir_excluded = dir_excluded             
+
+        self.dir_proc = os.path.join(self.dir_data_root, self.dir_proc_name)           
+        self.dir_raw = os.path.join(self.dir_data_root, self.dir_raw_name)
+
+        self.dirs_raw_data = []
+        
+        self.data_file_out_name =   "data_file.json"
+        self.info_file_out_name =   "data_info_file.json"
+        self.gps_file_out_name =    "gps_file.json"        
+        
+        self.roi = roi
+
+        self.mask_fixed_pattern_path = mask_fixed_pattern_path
+        self.mask_fixed_pattern = None
+   
+        self.__do_multi_thread = do_multi_thread
+        self.__done_init = False
+   
+        
+    def _run_iterative_task_multithread(
+        self,
+        task,
+        kwarg_iters : dict,
+        kwargs_static : dict = {},
+        ):
+        """
+        kwargs_iters - "PARAM_NAME" : list, where list is used in iteration to insert one item as kwarg
+        """
+        
         cpu_count = multiprocessing.cpu_count()
-        i = 0
+        idx = 0
         processes = [] 
-        while i < len(dirs_raw_data):
+        kwarg_iters_key = list(kwarg_iters.keys())[0]
+        iter_count = len(kwarg_iters[kwarg_iters_key])
+             
+        while idx < iter_count:
             for n in range(cpu_count):
-                dir_proc_data = os.path.join(dir_proc, os.path.basename(dirs_raw_data[i]))
-                process = multiprocessing.Process(target=decoding_and_linking, 
-                                                  args=(dirs_raw_data[i], dir_proc_data, dir_proc_decode_name, dir_proc_link_name, do_gen_meas_info))
+                
+                kwargs = kwargs_static
+                kwargs[kwarg_iters_key] = kwarg_iters[kwarg_iters_key][idx]
+                
+                process = multiprocessing.Process(target=task, 
+                                                  kwargs=kwargs)
                 processes.append(process)
                 process.start()
-                i += 1
-                if i == len(dirs_raw_data): 
+                idx += 1
+                if idx == iter_count: 
                     break
             for process in processes:
-                process.join()      
-    else:
-        for dir_raw_data in dirs_raw_data:
-            dir_proc_data = os.path.join(dir_proc, os.path.basename(dir_raw_data))
-            decoding_and_linking(dir_raw_data, dir_proc_data, dir_proc_decode_name, dir_proc_link_name, do_gen_meas_info)
+                process.join()         
+           
+   
+    def init(self):
+        
+        if not dir_data_root:
+            raise RuntimeError("dir_data_root is empty")
+        
+        #mask fixed pattern
+        if self.mask_fixed_pattern_path:
+            self.mask_fixed_pattern = Mask()
+            self.mask_fixed_pattern.load(self.mask_fixed_pattern_path)
 
-def decoding_and_linking(dir_raw_data, dir_proc_data, dir_proc_decode_name, dir_proc_link_name, do_gen_meas_info=True):
+        # find directories
+        self.dirs_raw_data = sorted(load_dirs_data(self.dir_raw, dir_excluded=self.dir_excluded))
 
-    frames_ext = []
+        self.__done_init = True
 
-    # create dirs
-    dir_proc_decode = os.path.join(dir_proc_data, dir_proc_decode_name) 
-    dir_proc_link = os.path.join(dir_proc_data, dir_proc_link_name)         
-    os.makedirs(dir_proc_data, exist_ok=True)         
-    os.makedirs(dir_proc_decode, exist_ok=True) 
-    os.makedirs(dir_proc_link, exist_ok=True) 
+    def process(self):
+        if not self.__done_init: 
+            print("error - init was not done")
+            return
+        
+        self.__decoding_and_linking()
+        self.__masking()
+        # rename_mask_files(dir_proc, dirs_raw_data, dir_proc_mask_name) # rename files to be correctly processed 
+        # clusterization(dir_proc, dir_proc_mask_name, dir_proc_clusterer_name, do_multi_thread=False, frame_base_name="", do_zip_mask=True)    
+        # dpe(dir_proc, dir_proc_clusterer_name, dir_proc_dpe_name, do_multi_thread=False, do_zip_cluster=True)        
+                                              
 
-    # load 
-    gps_file =  GpsFile(os.path.join(dir_raw_data, "dosimeter_gps_info.csv"))
-    data_file = DataFile(os.path.join(dir_raw_data, "dosimeter_image_packets.csv"), os.path.join(dir_raw_data, "meas_settings.json"),
-                         os.path.join(dir_proc_data, ".." , "global_config.json"))
-    info_file = DataInfoFile(os.path.join(dir_raw_data, "dosimeter_measure_info.csv"), os.path.join(dir_raw_data, "meas_settings.json"))                
-    load_files(data_file, info_file, gps_file)
+    def __decoding_and_linking(self):
+        """
+        Decodes and links frames with info and gps.
+        """
+        
+        # generate settings meas info
+        dir_raw_data = os.path.dirname(self.dirs_raw_data[0])
+        cmd = f"python src/generate_meas_set_info.py {dir_raw_data}"
+        os.system(cmd)
+            
+        # create export directories
+        os.makedirs(self.dir_proc, exist_ok=True) 
 
-    # export
-    export_file_stat_info(dir_proc_data, data_file, info_file, gps_file)
-    export_frames(data_file.frames, dir_proc_decode)
-    export_sum_frames(data_file.frames, dir_proc_decode)
+        if self.__do_multi_thread:
+            self._run_iterative_task_multithread(task=self.__decoding_and_linking_single_dir
+                                                ,kwarg_iters={"dir_raw_data" : self.dirs_raw_data})
+        else:
+            for dir_raw_data in self.dirs_raw_data:
+                self.__decoding_and_linking_single_dir(dir_raw_data = dir_raw_data)                
 
-    # link
-    data_linker = DataLinker(file_settings_path_name=os.path.join(dir_raw_data, "meas_settings.json"))
-    data_linker.load_settings()
-    data_linker.link_data_info_gps(data_file, info_file, gps_file, frames_ext, do_print_info=True)
-    data_linker.export(os.path.join(dir_proc_data, "data_linker.json"))     
+    def __decoding_and_linking_single_dir(
+        self
+        ,dir_raw_data : str
+        ):
 
-    # export
-    export_frames(frames_ext, dir_proc_link)
-    export_sum_frames(frames_ext, dir_proc_link)
+        frames_ext = []
 
-def load_files(data_file, info_file, gps_file):
-    gps_file.load()
-    data_file.load()
-    info_file.load() 
+        dir_proc_data = os.path.join(self.dir_proc, os.path.basename(dir_raw_data))
 
-"""export statistical files of individual files which"""
-def export_file_stat_info(dir_proc_data, data_file, info_file, gps_file):
-    data_file_out_name = "data_file.json"
-    info_file_out_name = "data_info_file.json"
-    gps_file_out_name = "gps_file.json"
+        # create dirs
+        dir_proc_decode = os.path.join(dir_proc_data, self.dir_proc_decode_name) 
+        dir_proc_link = os.path.join(dir_proc_data, self.dir_proc_link_name)    
+             
+        os.makedirs(dir_proc_data, exist_ok=True)         
+        os.makedirs(dir_proc_decode, exist_ok=True) 
+        os.makedirs(dir_proc_link, exist_ok=True) 
 
-    if gps_file.get_done_load():
-        gps_file.export_stat(os.path.join(dir_proc_data, gps_file_out_name))
-    
-    if data_file.get_done_load():
-        data_file.export_stat(os.path.join(dir_proc_data, data_file_out_name))
-    
-    if info_file.get_done_load():    
-        info_file.export_stat(os.path.join(dir_proc_data, info_file_out_name))     
+        # load 
+        gps_file =  GpsFile(os.path.join(dir_raw_data, "dosimeter_gps_info.csv"))
+        data_file = DataFile(os.path.join(dir_raw_data, "dosimeter_image_packets.csv"), os.path.join(dir_raw_data, "meas_settings.json"),
+                            os.path.join(dir_proc_data, ".." , "global_config.json"))
+        info_file = DataInfoFile(os.path.join(dir_raw_data, "dosimeter_measure_info.csv"), os.path.join(dir_raw_data, "meas_settings.json"))                
+        
+        gps_file.load()
+        data_file.load()
+        info_file.load() 
 
-"""export of frames - base and extended"""
-def export_frames(frames, file_out_path, do_sparse_matrix=True):
-    for frame in frames:
-        frame.export(file_out_path, file_out_path, do_sparse_matrix=do_sparse_matrix)
+        # export
+        self.__export_file_stat_info(dir_proc_data, data_file, info_file, gps_file)
+        self.__export_frames(data_file.frames, dir_proc_decode)
+        self.__export_sum_frames(data_file.frames, dir_proc_decode)
 
-"""export of sum frames - base and extended"""
-def export_sum_frames(frames, file_out_path):
-    matrices = {}
-    modes_str = []
-    delimiter = " "
+        # link
+        data_linker = DataLinker(file_settings_path_name=os.path.join(dir_raw_data, "meas_settings.json"))
+        data_linker.load_settings()
+        data_linker.link_data_info_gps(data_file, info_file, gps_file, frames_ext, do_print_info=True)
+        data_linker.export(os.path.join(dir_proc_data, "data_linker.json"))     
 
-    if frames:
+        # export
+        self.__export_frames(frames_ext, dir_proc_link)
+        self.__export_sum_frames(frames_ext, dir_proc_link)
+
+
+    def __export_file_stat_info(
+        self 
+        ,dir_proc_data : str 
+        ,data_file : GpsFile 
+        ,info_file : DataFile 
+        ,gps_file : DataInfoFile
+        ):
+        """
+        Export statistical files of individual data files = gps, data, info.
+        """
+
+        if gps_file.get_done_load():
+            gps_file.export_stat(os.path.join(dir_proc_data, self.gps_file_out_name))
+        
+        if data_file.get_done_load():
+            data_file.export_stat(os.path.join(dir_proc_data, self.data_file_out_name))
+        
+        if info_file.get_done_load():    
+            info_file.export_stat(os.path.join(dir_proc_data, self.info_file_out_name))     
+
+    def __export_frames(
+        self
+        ,frames : list
+        ,file_out_path : str
+        ,do_sparse_matrix : bool = True
+        ):
+        """
+        Export of frames - base and extended.
+        """
+        for frame in frames:
+            frame.export(file_out_path, file_out_path, do_sparse_matrix=do_sparse_matrix)
+
+    def __export_sum_frames(
+        self
+        ,frames : list
+        ,file_out_path : str
+        ):
+        """
+        Export of sum frames - base and extended
+        """
+
+        if not len(frames):
+            raise RuntimeError("export_sum_frames - frames are empty")
+
+        matrices = {}
+        modes_str = []
+        delimiter = " "            
+
         for key, value in frames[0].matrix.items():
             matrices[key] = np.zeros((frames[0].height, frames[0].width)) 
             modes_str.append(convert_tpx3_mode_to_str(key))
 
-    for frame in frames:
-        for key, value in frame.matrix.items():
-            matrices[key] += frame.matrix[key]
+        for frame in frames:
+            for key, value in frame.matrix.items():
+                matrices[key] += frame.matrix[key]
 
-    idx = 0
-    for key, matrix in matrices.items():
-        matrix_sum_name = f"sum_{modes_str[idx]}.txt"
-        np.savetxt(os.path.join(file_out_path, matrix_sum_name), matrix, fmt='%g',  delimiter=delimiter)
-        idx += 1
+        idx = 0
+        for key, matrix in matrices.items():
+            matrix_sum_name = f"sum_{modes_str[idx]}.txt"
+            np.savetxt(os.path.join(file_out_path, matrix_sum_name), matrix, fmt='%g',  delimiter=delimiter)
+            idx += 1
 
 
-def masking(dirs_raw_data, dir_proc, dir_proc_mask_name, dir_proc_link_name, roi, mask_fixed_pattern=None, do_multi_thread=True,
-            do_zip_decode_link=False):
-    # create export directories
-    os.makedirs(dir_proc, exist_ok=True) 
+    def __masking(self):
+        """
+        Masks frames with static and adaptive mask.
+        """
 
-    # create fixed pattern mask
-    if mask_fixed_pattern == None:
-        mask_fixed_pattern = create_fixed_pattern_mask(dirs_raw_data, dir_proc, dir_proc_link_name,roi)
+        # create export directories
+        os.makedirs(self.dir_proc, exist_ok=True) 
 
-    if do_multi_thread:
-        cpu_count = multiprocessing.cpu_count()
-        i = 0
-        processes = [] 
-        while i < len(dirs_raw_data):
-            for n in range(cpu_count):
-                print(f"masking: {i} {dirs_raw_data[i]}")
-                dir_proc_data = os.path.join(dir_proc, os.path.basename(dirs_raw_data[i]))
-                process = multiprocessing.Process(target=mask_dir_and_create_directories, 
-                                                  args=(dir_proc, dirs_raw_data[i], mask_fixed_pattern))
-                processes.append(process)
-                process.start()
-                i += 1
-                if i == len(dirs_raw_data): 
-                    break
-            for process in processes:
-                process.join()  
-    else:
-        # create individual masks and apply them
-        for idx, dir_raw_data in enumerate(dirs_raw_data):
-            print(f"masking: {idx} {dir_raw_data}")
-            mask_dir_and_create_directories(dir_proc, dir_raw_data, mask_fixed_pattern)
+        # create fixed pattern mask
+        if self.mask_fixed_pattern == None:
+            self.mask_fixed_pattern = self.__create_fixed_pattern_mask()
 
-def create_fixed_pattern_mask(dirs_raw_data, dir_proc, dir_proc_link_name, roi):
+        # process
+        if self.__do_multi_thread:
+            self._run_iterative_task_multithread(task=self.__masking_single_dir
+                                                ,kwarg_iters={"dir_raw_data" : self.dirs_raw_data})
+        else:
+            for dir_raw_data in self.dirs_raw_data:
+                self.__masking_single_dir(dir_raw_data = dir_raw_data) 
 
-    matrices_tot_sum = []
-    matrices_count_sum = []        
 
-    matrices_tot_sum, matrices_count_sum = load_sum_matrices_from_all_dirs(dirs_raw_data, dir_proc, dir_proc_link_name)
+    def __create_fixed_pattern_mask(self):
+        """
+        Creates fixed pattern mask from all data based on count information.
+        """
 
-    # create fixed pattern mask out of count matrices
-    mask_fixed_pattern = Mask()
-    mask_fixed_pattern.create_fixed_pattern(matrices_count_sum, roi=roi)
-    mask_fixed_pattern.export(os.path.join(dir_proc, "mask_fixed_pattern.txt"))
+        matrices_tot_sum = []
+        matrices_count_sum = []        
 
-    return mask_fixed_pattern
+        matrices_tot_sum, matrices_count_sum = self.__load_sum_matrices_from_all_dirs()
 
-def load_sum_matrices_from_all_dirs(dirs_raw_data, dir_proc, dir_proc_link_name):
-    matrices_tot_sum = []
-    matrices_count_sum = []        
+        # create fixed pattern mask out of count matrices
+        mask_fixed_pattern = Mask()
+        mask_fixed_pattern.create_fixed_pattern(matrices_count_sum, roi=self.roi)
+        mask_fixed_pattern.export(os.path.join(self.dir_proc, "mask_fixed_pattern.txt"))
 
-    for dir_raw_data in dirs_raw_data:
-        try:
-            dir_proc_data = os.path.join(dir_proc, os.path.basename(dir_raw_data))
-            dir_proc_link = os.path.join(dir_proc_data, dir_proc_link_name)         
+        return mask_fixed_pattern
 
-            matrix_tot_sum, matrix_count_sum = load_sum_matrices_from_dir(dir_proc_link)
+    def __load_sum_matrices_from_all_dirs(self):
+        
+        matrices_tot_sum = []
+        matrices_count_sum = []        
 
-            matrices_tot_sum.append(matrix_tot_sum)
-            matrices_count_sum.append(matrix_count_sum)
+        for dir_raw_data in self.dirs_raw_data:
+            try:
+                dir_proc_data = os.path.join(self.dir_proc, os.path.basename(dir_raw_data))
+                dir_proc_link = os.path.join(dir_proc_data, self.dir_proc_link_name)         
 
-        except Exception as e:
-            log_warning(f"can not load sum matrixes from dir: {dir_raw_data}, {e}")
+                matrix_tot_sum, matrix_count_sum = self.__load_sum_matrices_from_dir(dir_proc_link)
 
-    return matrices_tot_sum, matrices_count_sum
+                matrices_tot_sum.append(matrix_tot_sum)
+                matrices_count_sum.append(matrix_count_sum)
 
-def load_sum_matrices_from_dir(dir_data):
-    file_names = os.listdir(dir_data)
+            except Exception as e:
+                log_warning(f"can not load sum matrixes from dir: {dir_raw_data}, {e}")
 
-    matrix_tot_sum = np.loadtxt(os.path.join(dir_data, "sum_tot.txt"))  
-    matrix_count_sum =np.loadtxt(os.path.join(dir_data, "sum_count.txt"))  
+        return matrices_tot_sum, matrices_count_sum
 
-    return matrix_tot_sum, matrix_count_sum
+    def __load_sum_matrices_from_dir(
+        self
+        ,dir_data : str
+        ):
+        
+        matrix_tot_sum = np.loadtxt(os.path.join(dir_data, "sum_tot.txt"))  
+        matrix_count_sum =np.loadtxt(os.path.join(dir_data, "sum_count.txt"))  
 
-def mask_dir_and_create_directories(dir_proc, dir_raw_data, mask_fixed_pattern):
-    dir_proc_data = os.path.join(dir_proc, os.path.basename(dir_raw_data))        
-    dir_proc_link = os.path.join(dir_proc_data, dir_proc_link_name)         
-    dir_proc_mask = os.path.join(dir_proc_data, dir_proc_mask_name)   
+        return matrix_tot_sum, matrix_count_sum
 
-    os.makedirs(dir_proc_mask, exist_ok=True) 
+    def __masking_single_dir(
+        self
+        ,dir_in_path : str
+        ,dir_out_path : str
+        ):
+        """
+        Applies created mask on given matrices in single directory.
+        """
+        
+        dir_proc_data = os.path.join(self.dir_proc, os.path.basename(dir_raw_data))        
+        dir_proc_link = os.path.join(dir_proc_data, self.dir_proc_link_name)         
+        dir_proc_mask = os.path.join(dir_proc_data, self.dir_proc_mask_name)   
 
-    mask_dir(dir_proc_link, dir_proc_mask, mask_fixed_pattern)
+        os.makedirs(dir_proc_mask, exist_ok=True)     
+        
+        mask = create_mask_for_dir(dir_in_path, dir_out_path, mask_fixed_pattern)
 
-"""
-applies created mask on given matrices in directory
-dir_in_path - should include matrices which should be masked and sum matrices for faster creation of mask
-"""
-def mask_dir(dir_in_path, dir_out_path, mask_fixed_pattern=None):
-    mask = create_mask_for_dir(dir_in_path, dir_out_path, mask_fixed_pattern)
+        frames = load_frames(dir_in_path)
 
-    frames = load_frames(dir_in_path)
+        for frame in frames:
+            mask.apply(frame)
 
-    for frame in frames:
-        mask.apply(frame)
+        self.__export_frames(frames, dir_out_path, do_sparse_matrix=False)
 
-    export_frames(frames, dir_out_path, do_sparse_matrix=False)
-
-    dir_proc_data = os.path.dirname(dir_in_path)
-    mask.export(os.path.join(dir_proc_data, "mask_adaptive.txt"))   
+        dir_proc_data = os.path.dirname(dir_in_path)
+        mask.export(os.path.join(dir_proc_data, "mask_adaptive.txt"))   
 
 def create_mask_for_dir(dir_in_path, dir_out_path, mask_fixed_pattern=None):
     count_noisy_pix_fix = 0
@@ -368,7 +487,7 @@ def clusterization(dir_proc, dir_proc_mask_name, dir_proc_clusterer_name, do_mul
 
     calib_dir = "/home/lukas/file/analysis/one_web/data/cal_mat/20deg" 
 
-    clusterer = "/home/lukas/file/sw/cpp/data_proc/preproc/clusterer/out/clusterer"
+    clusterer = "/home/lukas/file/sw/cpp/data_proc/preproc/clusterer/_out/clusterer"
     # clusterer = "/home/lukas/file/sw/py/one_web/bin/DPE_Linux_1.1.0_231213_5b77c235/clusterer"
 
     dirs_proc_data = list_dirs_of_dir(dir_proc)
@@ -520,7 +639,6 @@ def dpe(dir_proc, dir_proc_clusterer_name, dir_proc_dpe_name, do_multi_thread=Tr
 
     dpe = "/home/lukas/file/analysis/one_web/bin/DPE_Linux_1.1.0_240619_cd7a7866/dpe.sh"
 
-
     if do_multi_thread:
         cpu_count = multiprocessing.cpu_count()
         i = 0
@@ -547,17 +665,12 @@ def dpe_dir(dir_proc, dir_proc_data, dir_proc_clusterer_name, dir_proc_dpe_name,
     dir_proc_clusterer = os.path.join(dir_proc, dir_proc_data, dir_proc_clusterer_name)
     dir_proc_dpe = os.path.join(dir_proc, dir_proc_data, dir_proc_dpe_name)
 
-    # dir_proc_clusterer = "/home/lukas/file/analysis/one_web/data/proc_new/_2023-11-08_00_00_01_797-_2023-11-08_23_59_57_997/03_clusterer"
-    # dir_proc_dpe = "/home/lukas/file/analysis/one_web/data/proc_new/_2023-11-08_00_00_01_797-_2023-11-08_23_59_57_997/04_dpe"
-
     # remove old processing and create new one
-
     shutil.rmtree(dir_proc_dpe, ignore_errors=True)
     os.makedirs(dir_proc_dpe, exist_ok=True)
 
 
     # check clusterer directory is zipped -> extract
-    
     try:
         os.makedirs(dir_proc_clusterer, exist_ok=True)
         unzip_directory(dir_proc_clusterer + ".zip", dir_proc_clusterer)
@@ -565,12 +678,10 @@ def dpe_dir(dir_proc, dir_proc_data, dir_proc_clusterer_name, dir_proc_dpe_name,
         pass
 
     # get first time if proc
-
     elist_data = pd.read_csv(dir_proc_clusterer + "/data_ext.advelist", nrows=1,header=0,skiprows = [1],sep="\t")
     time_first = elist_data["T"][0]
 
     # create dpe config
-
     dpe_param = os.path.join(dir_proc_dpe, "dpe_param_file.txt")
 
     with open(dpe_param, "w") as dpe_param_file:
@@ -585,15 +696,13 @@ def dpe_dir(dir_proc, dir_proc_data, dir_proc_clusterer_name, dir_proc_dpe_name,
         dpe_param_file.write(f"do_export_graphics = false\n")        
 
     # chdir into dpe and run then chdir back
-
     current_directory = os.getcwd()
     cmd = dpe + " " + dpe_param
     os.chdir(dir_proc_dpe)
     os.system(cmd)
     os.chdir(current_directory)
 
-    # copy clist from clustere stage and extend it with PID class
-
+    # copy clist from clusterer stage and extend it with PID class
     copy_file(os.path.join(dir_proc_clusterer, "data_ext.clist"), os.path.join(dir_proc_dpe, "File", "data_ext.clist"))
 
     clist = Clist(os.path.join(dir_proc_dpe, "File", "data_ext.clist"))
@@ -603,7 +712,7 @@ def dpe_dir(dir_proc, dir_proc_data, dir_proc_clusterer_name, dir_proc_dpe_name,
     clist.var_units.append("-")
     clist.export(os.path.join(dir_proc_dpe, "File", "data_ext.clist"))
 
-    # zi clusterization directory
+    # zip clusterization directory
     if do_zip_cluster:
         delete_file(dir_proc_clusterer + ".zip")
         zip_directory(dir_proc_clusterer, dir_proc_clusterer + ".zip", do_delete_orig=True)    
@@ -626,10 +735,9 @@ def rename_mask_files(dir_proc, dirs_raw_data, dir_proc_mask_name):
         rename_files(dir_mask, "toa", "ToA")
 
 
-
 if __name__ == '__main__':
    
-    case = 3
+    case = 4
 
     if case == 1:
 
@@ -739,8 +847,20 @@ if __name__ == '__main__':
         dirs_raw_data = sorted(load_dirs_data(dir_raw, dir_excluded=dir_excluded))
 
         # process
-        # decoding_and_linking_dir(dirs_raw_data, dir_proc, dir_proc_decode_name, dir_proc_link_name, do_multi_thread=True)
-        # masking(dirs_raw_data, dir_proc, dir_proc_mask_name, dir_proc_link_name, roi, mask_fixed_pattern=mask_fixed_pattern, do_zip_decode_link=True, do_multi_thread=False)
-        # rename_mask_files(dir_proc, dirs_raw_data, dir_proc_mask_name) # rename files to be correctly processed 
-        # clusterization(dir_proc, dir_proc_mask_name, dir_proc_clusterer_name, do_multi_thread=True, frame_base_name="", do_zip_mask=True)    
+        decoding_and_linking_dir(dirs_raw_data, dir_proc, dir_proc_decode_name, dir_proc_link_name, do_multi_thread=False)
+        masking(dirs_raw_data, dir_proc, dir_proc_mask_name, dir_proc_link_name, roi, mask_fixed_pattern=mask_fixed_pattern, do_zip_decode_link=False, do_multi_thread=False)
+        rename_mask_files(dir_proc, dirs_raw_data, dir_proc_mask_name) # rename files to be correctly processed 
+        clusterization(dir_proc, dir_proc_mask_name, dir_proc_clusterer_name, do_multi_thread=False, frame_base_name="", do_zip_mask=True)    
         dpe(dir_proc, dir_proc_clusterer_name, dir_proc_dpe_name, do_multi_thread=False, do_zip_cluster=True)        
+        
+        
+    elif case == 4:
+        
+        dir_data_root = "/home/lukas/file/analysis/one_web/data/new/"        
+                
+        proc_mgr = ProcessingManager(dir_data_root = dir_data_root)
+        
+        proc_mgr.init()
+        proc_mgr.process()
+        
+                

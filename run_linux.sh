@@ -13,4 +13,4 @@ else
     exit 1
 fi
 
-$PY_EXE  src/proc.py
+$PY_EXE  src/main.py
