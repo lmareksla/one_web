@@ -17,7 +17,6 @@ Requirements and Installation
 
 Requirements:
  - `python` - tested with version 3.10
- - `DPE` - the DPE should be placed in the directory `bin` in main directory.
  
 List of python packages can be found in the `requirements.txt` (in main directory) 
 and can be installed with:
