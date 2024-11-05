@@ -15,7 +15,6 @@ from pixel import *
 from frame import *
 from llcp import *
 from decoder import *
-from log import *
 
 sys.path.append("src")
 
@@ -94,19 +93,20 @@ def load_frames(dir_in_path):
 
     return frames
 
-if __name__ == '__main__':
-    
-    dir_proc = "/home/lukas/file/analysis/one_web/data/proc/"
-    dir_out_figs = "//home/lukas/file/analysis/one_web/data/stat/"
+def create_stat_info(
+     dir_proc : str =               "/home/lukas/file/analysis/one_web/data/proc/"
+    ,dir_out : str =           "/home/lukas/file/analysis/one_web/data/stat/"
+    ,data_file_json_name : str =    "data_file.json"
+    ,info_file_json_name : str =    "data_info_file.json"
+    ,gps_file_json_name : str =     "gps_file.json"
+    ,data_linker_json_name : str =  "data_linker.json"
+    ,stat_info_file_name : str =    "stat.txt"
+    ):
 
-    data_file_json_name =   "data_file.json"
-    info_file_json_name =   "data_info_file.json"
-    gps_file_json_name =    "gps_file.json"
-    data_linker_json_name = "data_linker.json"
+    os.makedirs(dir_out, exist_ok=True) 
 
     dirs_proc_data = get_directories(dir_proc)
     dirs_proc_data = sorted(dirs_proc_data) 
-
 
     datetime_batch_start_list = []
     count_in_data_info_list = np.zeros((len(dirs_proc_data)))
@@ -128,10 +128,10 @@ if __name__ == '__main__':
         datetime_batch_start = extract_1st_datetime_from_dir_name(dir_proc_data)
         dir_proc_data_path = os.path.join(dir_proc, dir_proc_data)
 
-        info_json_path_name = os.path.join(dir_proc_data_path, "data_info_file.json")
-        linker_json_path_name = os.path.join(dir_proc_data_path, "data_linker.json")
-        data_json_path_name = os.path.join(dir_proc_data_path, "data_file.json")
-        gps_json_path_name = os.path.join(dir_proc_data_path, "gps_file.json")
+        info_json_path_name = os.path.join(dir_proc_data_path, info_file_json_name)
+        linker_json_path_name = os.path.join(dir_proc_data_path, data_linker_json_name)
+        data_json_path_name = os.path.join(dir_proc_data_path, data_file_json_name)
+        gps_json_path_name = os.path.join(dir_proc_data_path, gps_file_json_name)
 
         datetime_batch_start_list.append(datetime_batch_start)
 
@@ -174,7 +174,7 @@ if __name__ == '__main__':
     ax.set_ylabel("count of frames [-]")
     ax.set_title("Count of all frames measured (in) and frames which passed thourhg whole processing (out)")      
     ax.legend()
-    plt.savefig(dir_out_figs + "count_frames_in_out.png")
+    plt.savefig(os.path.join(dir_out, "count_frames_in_out.png"))
     plt.close()        
 
     fig, ax = plt.subplots(figsize=(10,6))
@@ -183,7 +183,7 @@ if __name__ == '__main__':
     ax.set_ylabel("count of error frames [-]")
     ax.set_title("Count of all error or lost frames")      
     ax.legend()
-    plt.savefig(dir_out_figs + "count_error_frames.png")
+    plt.savefig(os.path.join(dir_out, "count_error_frames.png"))
     plt.close()        
 
     fig, ax = plt.subplots(figsize=(10,6))
@@ -196,7 +196,7 @@ if __name__ == '__main__':
     ax.set_ylabel("Fraction of error frames [%]")
     ax.set_title("Fraction of all error or lost frames to all input frames.")      
     ax.legend()
-    plt.savefig(dir_out_figs + "frac_error_frames.png")
+    plt.savefig(os.path.join(dir_out, "frac_error_frames.png"))
     plt.close()        
 
     fig, ax = plt.subplots(figsize=(10,6))
@@ -205,7 +205,7 @@ if __name__ == '__main__':
     ax.set_ylabel("Fraction of error frames [%]")
     ax.set_title("Fraction of all error or lost frames to all input frames.")      
     ax.legend()
-    plt.savefig(dir_out_figs + "frac_error_frames_all.png")
+    plt.savefig(os.path.join(dir_out, "frac_error_frames_all.png"))
     plt.close()        
 
 
@@ -216,7 +216,7 @@ if __name__ == '__main__':
     ax.set_ylabel("count of frames [-]")
     ax.set_title("count of input and output frames from linking processes: info and gps metadata")      
     ax.legend()
-    plt.savefig(dir_out_figs + "count_frames_linking.png")
+    plt.savefig(os.path.join(dir_out, "count_frames_linking.png"))
     plt.close()        
 
     fig, ax = plt.subplots(figsize=(10,6))
@@ -227,7 +227,7 @@ if __name__ == '__main__':
     ax.set_ylabel("fraction of lost frames [%]")  
     ax.set_title("Fraction of lost frames due to linking processes: info and gps metadata.")
     ax.legend()                  
-    plt.savefig(dir_out_figs + "frac_frame_linking_lost.png")
+    plt.savefig(os.path.join(dir_out, "frac_frame_linking_lost.png"))
     plt.close()        
 
     fig, ax = plt.subplots(figsize=(10,6))
@@ -235,7 +235,7 @@ if __name__ == '__main__':
     ax.set_xlabel("start of data batch")
     ax.set_ylabel("mean temperature [s]")    
     ax.set_title("Mean value of temperature with std as error bars over day of measurement.")      
-    plt.savefig(dir_out_figs + "temperature_mean.png")
+    plt.savefig(os.path.join(dir_out, "temperature_mean.png"))
     plt.close()     
 
     fig, ax = plt.subplots(figsize=(10,6))
@@ -243,7 +243,7 @@ if __name__ == '__main__':
     ax.set_xlabel("start of data batch")
     ax.set_ylabel("total acq time [h]")      
     ax.set_title("Total acquisition time in one day.")
-    plt.savefig(dir_out_figs + "time_acq_total.png")
+    plt.savefig(os.path.join(dir_out, "time_acq_total.png"))
     plt.close()        
 
     fig, ax = plt.subplots(figsize=(10,6))
@@ -251,7 +251,7 @@ if __name__ == '__main__':
     ax.set_xlabel("start of data batch")
     ax.set_ylabel("mean acq time [s]")    
     ax.set_title("Mean value of acquisition time over day of measurement.")      
-    plt.savefig(dir_out_figs + "time_acq_mean.png")
+    plt.savefig(os.path.join(dir_out, "time_acq_mean.png"))
     plt.close()        
 
     fig, ax = plt.subplots(figsize=(10,6))
@@ -259,7 +259,7 @@ if __name__ == '__main__':
     ax.set_xlabel("start of data batch")
     ax.set_ylabel("fraction acq time to live time [%]")   
     ax.set_title("Fraction of acquisition time in live time of detector.")             
-    plt.savefig(dir_out_figs + "frac_acq_live_time.png")
+    plt.savefig(os.path.join(dir_out, "frac_acq_live_time.png"))
     plt.close()        
 
     fig, ax = plt.subplots(figsize=(10,6))
@@ -269,7 +269,7 @@ if __name__ == '__main__':
     ax.set_xlabel("start of data batch")      
     ax.set_ylabel("count of frames")
     ax.set_title("Count of frames in decode - all in, error frames and ok out frames.")                 
-    plt.savefig(dir_out_figs + "count_frames_decode.png")
+    plt.savefig(os.path.join(dir_out, "count_frames_decode.png"))
     plt.close()      
 
     fig, ax = plt.subplots(figsize=(10,6))
@@ -277,7 +277,7 @@ if __name__ == '__main__':
     ax.set_xlabel("start of data batch")      
     ax.set_ylabel("count error frames from decoding")
     ax.set_title("Fraction of acquisition time in live time of detector.")                 
-    plt.savefig(dir_out_figs + "error_frames_decode.png")
+    plt.savefig(os.path.join(dir_out, "error_frames_decode.png"))
     plt.close()        
 
     fig, ax = plt.subplots(figsize=(10,6))
@@ -285,7 +285,7 @@ if __name__ == '__main__':
     ax.set_xlabel("start of data batch")      
     ax.set_ylabel("fraction of error frames from decoding to input frames [%]")
     ax.set_title("Fraction of error frames from decoding to input frames.")                     
-    plt.savefig(dir_out_figs + "frac_error_frames_decode.png")
+    plt.savefig(os.path.join(dir_out, "frac_error_frames_decode.png"))
     plt.close()        
 
     fig, ax = plt.subplots(figsize=(10,6))
@@ -297,7 +297,7 @@ if __name__ == '__main__':
     ax.set_xlabel("start of data batch")      
     ax.set_ylabel("count error frames from decoding")
     ax.set_title("Count of error frames from decoding.")                         
-    plt.savefig(dir_out_figs + "error_frames_decode_all.png")
+    plt.savefig(os.path.join(dir_out, "error_frames_decode_all.png"))
     plt.close()        
 
     fig, ax = plt.subplots(figsize=(10,6))
@@ -309,17 +309,27 @@ if __name__ == '__main__':
     ax.set_xlabel("start of data batch")      
     ax.set_ylabel("fraction of error frames from decoding to all input frames")
     ax.set_title("Fraction of error frames from decoding to all input frames.")                             
-    plt.savefig(dir_out_figs + "frac_error_frames_decode_all.png")
+    plt.savefig(os.path.join(dir_out, "frac_error_frames_decode_all.png"))
     plt.close()      
 
+    msg = ""
+    msg += f"count of all in frames:                 {count_in_data_info_list.sum()}\n"
+    msg += f"count of lost frame:                    {count_in_data_info_list.sum()-count_linked_data_gps_list.sum()}\n"
+    msg += f"fraciton of lost frame:                 {100*(count_in_data_info_list.sum() - count_linked_data_gps_list.sum())/count_in_data_info_list.sum():.2f}\n"
+    msg += f"total acq time:                         {t_acq_total_data_info_list.sum():.2f} s\n"
+    msg += f"total acq time:                         {t_acq_total_data_info_list.sum()/(24.*3600.):.2f} d\n"  
+    msg += f"total live time:                        {t_duration_data_info_list.sum():.2f} s\n" 
+    msg += f"total live time:                        {t_duration_data_info_list.sum()/(24.*3600.):.2f} d\n"          
+    msg += f"mean acq time:                          {t_acq_mean_data_info_list.mean():.2f} s\n"
+    msg += f"fraciton of total acq and duration:     {100*(t_acq_total_data_info_list.sum())/t_duration_data_info_list.sum():.2f}\n"
 
-
-    print(f"count of all in frames:                 {count_in_data_info_list.sum()}")
-    print(f"count of lost frame:                    {count_in_data_info_list.sum()-count_linked_data_gps_list.sum()}")
-    print(f"fraciton of lost frame:                 {100*(count_in_data_info_list.sum() - count_linked_data_gps_list.sum())/count_in_data_info_list.sum():.2f}")
-    print(f"total acq time:                         {t_acq_total_data_info_list.sum():.2f} s")
-    print(f"total acq time:                         {t_acq_total_data_info_list.sum()/(24.*3600.):.2f} d")    
-    print(f"total live time:                        {t_duration_data_info_list.sum():.2f} s")  
-    print(f"total live time:                        {t_duration_data_info_list.sum()/(24.*3600.):.2f} d")          
-    print(f"mean acq time:                          {t_acq_mean_data_info_list.mean():.2f} s")
-    print(f"fraciton of total acq and duration:     {100*(t_acq_total_data_info_list.sum())/t_duration_data_info_list.sum():.2f}")
+    print(msg)
+    
+    try:
+        with open(os.path.join(dir_out, stat_info_file_name) , "w") as file_stat:
+            file_stat.write(msg)
+    except Exception as e:
+        print(f"failed to write stat file: {e}")
+    
+if __name__ == '__main__':
+    create_stat_info()

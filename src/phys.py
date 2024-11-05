@@ -22,7 +22,6 @@ from pixel import *
 from frame import *
 from llcp import *
 from decoder import *
-from log import *
 
 sys.path.append("src")
 
@@ -34,7 +33,7 @@ from gps_file import *
 from data_linker import *
 from mask import *
 from clusterer import *
-from dpe import *
+
 from clist_h5 import *
 from phys_map import *
 from phys_time import *

@@ -7,8 +7,6 @@ import json
 sys.path.append("src")
 from dir import *
 
-
-
 def get_directories(root_path):
     entries = os.listdir(root_path)
     directories = [entry for entry in entries if os.path.isdir(os.path.join(root_path, entry))]
@@ -19,17 +17,10 @@ def create_json_with_settings(file_out_path_name, data):
     with open(file_out_path_name, "w") as file_json:
         json.dump(data, file_json, indent=2)
 
-
-if __name__ == '__main__':
-
-    args = sys.argv
-
-    dir_raw = "/home/lukas/file/analysis/one_web/data/new/raw/"
+def generate_meas_info(
+    dir_raw : str
+    ):
     
-    if len(args) > 1:
-        dir_raw = args[1]    
-    
-
     dirs_raw_data = sorted(get_directories(dir_raw))
 
     meas_info_name = "meas_settings.json"
@@ -120,3 +111,16 @@ if __name__ == '__main__':
         meas_info_path_name = os.path.join(dir_raw, dir_raw_data, meas_info_name)
 
         create_json_with_settings(meas_info_path_name, settings[idx_settings])
+
+
+if __name__ == '__main__':
+
+    args = sys.argv
+
+    dir_raw = "/home/lukas/file/analysis/one_web/data/new/raw/"
+    
+    if len(args) > 1:
+        dir_raw = args[1]    
+    
+
+    generate_meas_info(dir_raw)

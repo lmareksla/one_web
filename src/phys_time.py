@@ -22,7 +22,6 @@ from pixel import *
 from frame import *
 from llcp import *
 from decoder import *
-from log import *
 
 sys.path.append("src")
 
@@ -34,7 +33,6 @@ from gps_file import *
 from data_linker import *
 from mask import *
 from clusterer import *
-from dpe import *
 from clist_h5 import *
 from plot import *
 from analysis import *
@@ -63,9 +61,6 @@ def export_and_plot_time_data(data_and_keys,
                               do_log_y=False, do_log_oposite=False,
                               file_fig_path_name="", file_fig_opp_log_path_name="",
                               file_json_path_name=""):
-
-    if not fig or not ax:
-        fig, ax = plt.subplots(figsize=(15,7))
 
     if do_drop_zero:
         drop_data_zero(data_and_keys)
@@ -115,7 +110,7 @@ def export_and_plot_time_data(data_and_keys,
 
 
 
-def create_frame_list(clists : list, file_out_path_name : str):
+def create_frame_list(clists : list, file_out_path_name : str, roi : list):
     
     frame_list_file = open(file_out_path_name, "w")
     delim = "\t"
@@ -266,15 +261,8 @@ def process_frame_list(frame_list_path_name : str):
     plot_time_graphs_lines([[date_times_unix, frame_drs["elph"], "time", "electrons & photons"]], fig=fig, ax=axs[1], do_log_y=False)
     plt.show()
 
-    # data_and_keys, 
-    # label_x="", label_y="", title="",
-    # fig=None, ax=None, 
-    # do_log_y=False,
-    # file_fig_path_name="", do_save_fig=False,
-    # do_show=False):
 
-
-def plot_phys_time(clist : list, time_samplings_hours : list, dir_phys : str):
+def plot_phys_time(clists : list, time_samplings_hours : list, dir_phys : str, roi : list):
 
     does_coeff_kev_ugy, does_rate_coef_kev_ugy_h, flux_coeff = create_phys_factors(roi)
 
@@ -496,20 +484,21 @@ def plot_phys_time(clist : list, time_samplings_hours : list, dir_phys : str):
                                     file_json_path_name=os.path.join(dir_phys_time, "dose_rate_sampling_time.json"))
 
 
-if __name__ == "__main__":
+def create_phys_time(
+     dir_data_proc : str =     "/home/lukas/file/analysis/one_web/data/proc"
+    ,dir_phys : str =          "/home/lukas/file/analysis/one_web/data/phys/"   
+    ,dir_proc_dpe_name : str = "04_dpe"    
+    ,roi : list =              [[62, 192], [62, 192]]
+    ,time_samplings_hours : list = [0.2,0.5, 1, 2, 4, 8, 12, 24]  
+    ,month : str =             ""   
+    ):
 
-    dir_data_proc =     "/home/lukas/file/analysis/one_web/data/proc"
-    dir_phys =          "/home/lukas/file/analysis/one_web/data/phys/"
     dir_phys_time =     os.path.join(dir_phys, "time")
-
-    dir_proc_dpe_name = "04_dpe"
 
     frame_list_path_name = os.path.join(dir_phys, "frame_list.txt")
 
-    roi = [[62, 192], [62, 192]]
-    time_samplings_hours = [0.5]#[0.2,0.5, 1, 2, 4, 8, 12, 24]
-
-    month =  "2024-02" #""
+    os.makedirs(dir_phys, exist_ok=True)    
+    os.makedirs(dir_phys_time, exist_ok=True)    
 
     do_load_clists =    True
 
@@ -530,7 +519,13 @@ if __name__ == "__main__":
             clists.append(clist)
 
     if len(clists) != 0:
-        plot_phys_time(clists, time_samplings_hours, dir_phys_time)
-        # create_frame_list(clists, frame_list_path_name)
+        plot_phys_time(clists, time_samplings_hours, dir_phys_time, roi)
+        create_frame_list(clists, frame_list_path_name, roi)
 
-    # process_frame_list(frame_list_path_name)
+if __name__ == "__main__":
+
+    # global
+    create_phys_time(month="")
+    
+    # specific month
+    # create_phys_time(month="2024-02")

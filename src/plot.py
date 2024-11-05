@@ -22,7 +22,6 @@ from pixel import *
 from frame import *
 from llcp import *
 from decoder import *
-from log import *
 
 sys.path.append("src")
 
@@ -34,7 +33,6 @@ from gps_file import *
 from data_linker import *
 from mask import *
 from clusterer import *
-from dpe import *
 from clist_h5 import *
 from export_phys import * 
 
@@ -191,7 +189,7 @@ def plot_clusters(clusters_str, n_clcuster_to_show=None, fig=None, ax=None, titl
         print("[ERROR] No clusters showed in plot_clusters fuction.")
         return
 
-    font_color = "white"
+    font_color = "black"
     fontsize = 12
     # Set labels and title with the specified font color and size
     ax.set_xlabel("X [px]", fontsize=fontsize, color=font_color)
@@ -204,7 +202,7 @@ def plot_clusters(clusters_str, n_clcuster_to_show=None, fig=None, ax=None, titl
     cbar.ax.tick_params(labelsize=fontsize, colors=font_color)  # Adjust colorbar tick label size    
     cbar.set_label(z_label, fontsize=fontsize, color=font_color)   
 
-    fig.patch.set_facecolor('white')
+    # fig.patch.set_facecolor('white')
 
     ax.set_xlim(62,192)
     ax.set_ylim(62,192)
@@ -228,7 +226,7 @@ def plot_time_graphs_markers(
         do_show=False):
 
     if not fig or not ax:
-        fix, ax = plt.subplots(figsize=(15,7))
+        fig, ax = plt.subplots(figsize=(15,7))
     
     colors =    ["C2",  "C9",   "C1",   "C3",   "C4",   "C5",   "C6"]
     markers =   ["s",   "v",    "^",    "s",    "<",    ">",    "X"]
@@ -237,7 +235,6 @@ def plot_time_graphs_markers(
         label = data_and_keys_list[3]
         data_x = data_and_keys_list[0]
         data_y = data_and_keys_list[1]
-
 
         ax.plot(data_x, data_y, color=colors[idx], linewidth=0, marker=markers[idx], 
                 markerfacecolor=colors[idx], markeredgewidth=0, markersize=3, label=label )
@@ -254,8 +251,10 @@ def plot_time_graphs_markers(
         plt.show()
         plt.close()
     elif do_save_fig and len(file_fig_path_name) != 0:
-        plt.savefig(file_fig_path_name, transparent=True, dpi=600)   
-        plt.close()           
+        plt.savefig(file_fig_path_name, dpi=600)   
+        plt.close()  
+    else:
+        plt.close()         
 
 def plot_time_graphs_lines(
     data_and_keys, 
@@ -267,7 +266,7 @@ def plot_time_graphs_lines(
     font_color=None):
 
     if not fig or not ax:
-        fix, ax = plt.subplots(figsize=(15,7))
+        fig, ax = plt.subplots(figsize=(15,7))
     
     colors =    ["C2",  "C9",   "C1",   "C3",   "C4",  "C5",   "C6"]
 
@@ -285,7 +284,7 @@ def plot_time_graphs_lines(
 
     ax.legend()
 
-    font_color = "white"
+    font_color = "black"
     fontsize = 16
     # Set labels and title with the specified font color and size
     ax.set_xlabel(label_x, fontsize=fontsize, color=font_color)
@@ -300,5 +299,26 @@ def plot_time_graphs_lines(
         plt.show()
         plt.close()
     elif do_save_fig and len(file_fig_path_name) != 0:
-        plt.savefig(file_fig_path_name, transparent=True, dpi=600)   
-        plt.close()        
+        plt.savefig(file_fig_path_name, transparent=False, dpi=600)   
+        plt.close()   
+    else:
+        plt.close()     
+
+
+if __name__ == "__main__":
+
+    data_and_keys = [   [[10,20], [3,2], "time", "all"],
+                        [[10,20], [4,1], "time", "electrons & photons"],
+                        [[10,20], [6,2], "time", "protons & ions"]]
+    
+    plot_time_graphs_lines(data_and_keys
+                           ,label_x="x"
+                           ,label_y="y"
+                           ,title="title"
+                           ,do_show=True)
+    
+    plot_time_graphs_markers(data_and_keys
+                           ,label_x="x"
+                           ,label_y="y"
+                           ,title="title"
+                           ,do_show=True)    

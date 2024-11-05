@@ -14,7 +14,6 @@ from pixel import *
 from frame import *
 from llcp import *
 from decoder import *
-from log import *
 
 sys.path.append("src")
 
@@ -27,7 +26,11 @@ from utils import *
 # links data file, data info file and gps file based on the time
 class DataLinker(object):
     """docstring for DataLinker"""
-    def __init__(self, file_settings_path_name="", log_path="", log_name="log.txt"):
+    def __init__(
+        self
+        ,file_settings_path_name=""
+        ):
+        
         super(DataLinker, self).__init__()
         
         self.file_settings_path_name = file_settings_path_name
@@ -56,25 +59,7 @@ class DataLinker(object):
         self.count_single_linked_data_gps = 0
 
         # log and print
-        self.do_log = True
-        self.do_print = True
-        self.log_file_path = log_path
-        self.log_file_name = log_name
-        self.log_file = None
-
-        try:
-            self._open_log()
-        except Exception as e:
-            log_warning(f"failed to open log {os.path.join(self.log_file_path, self.log_file_name)}: {e}",
-                        self.log_file, self.do_print, self.do_log)
-
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if self.log_file:
-            self.log_file.close()        
-
-    def _open_log(self):
-        self.log_file = open(os.path.join(self.log_file_path, self.log_file_name), "w")
+        self.logger = create_logger()
 
     def load_settings(self):
         if not self.file_settings_path_name:
@@ -107,11 +92,11 @@ class DataLinker(object):
     """
     def _link_data_and_info(self, data_file : DataFile, info_file : DataInfoFile, frames_ext : list, do_print_info=False):
         if data_file is None or info_file is None:
-            raise_runtime_error(f"DataLinker.link_data_and_info - failed because none data {data_file} or info  {info_file}", 
-                                self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"DataLinker.link_data_and_info - failed because none data {data_file} or info  {info_file}", 
+                                self.logger)
         if not data_file.get_done_load() or not info_file.get_done_load():
-            raise_runtime_error(f"DataLinker.link_data_and_info - failed because not loaded data {data_file.get_done_load()} or info {info_file.get_done_load()}", 
-                                self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"DataLinker.link_data_and_info - failed because not loaded data {data_file.get_done_load()} or info {info_file.get_done_load()}", 
+                                self.logger)
 
         try:
             frames_failed_link = []
@@ -158,14 +143,15 @@ class DataLinker(object):
                 self._eval_frame_stat_of_data_info_link(count_links)
 
             if do_print_info:
-                self._print_frame_link_info(frames_ext, frames_failed_link, self.count_in_data_info, self.count_linked_data_info,
+                title = "link of data and info"
+                self._print_frame_link_info(title, frames_ext, frames_failed_link, self.count_in_data_info, self.count_linked_data_info,
                                             self.count_no_link_data_info, self. count_single_linked_data_info, self.count_multi_linked_data_info)
 
             # self._eval_failed_frames(frames_failed_link)
 
         except Exception as e:
-            raise_runtime_error(f"DataLinker.link_data_and_info - failed to link data and info: {e}",
-                                self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"DataLinker.link_data_and_info - failed to link data and info: {e}",
+                                self.logger)
 
     def _add_ext_frame_with_info(self, frame, info, frames_ext):
         frame_ext = FrameExtInfo(frame.mode)
@@ -224,11 +210,11 @@ class DataLinker(object):
     """
     def _link_data_and_gps(self, data_file : DataFile, gps_file : GpsFile, frames_ext : list, do_print_info=False):
         if data_file is None or gps_file is None:
-            raise_runtime_error(f"DataLinker.link_data_and_gps - failed because none data {data_file} or gps  {gps_file}", 
-                                self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"DataLinker.link_data_and_gps - failed because none data {data_file} or gps  {gps_file}", 
+                                self.logger)
         if not data_file.get_done_load() or not gps_file.get_done_load():
-            raise_runtime_error(f"DataLinker.link_data_and_gps - failed because not loaded data {data_file.get_done_load()} or gps {gps_file.get_done_load()}", 
-                                self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"DataLinker.link_data_and_gps - failed because not loaded data {data_file.get_done_load()} or gps {gps_file.get_done_load()}", 
+                                self.logger)
 
         try:
             frames_failed_link = []
@@ -280,12 +266,13 @@ class DataLinker(object):
                 frames_ext.pop(idx)           
 
             if do_print_info:
-                self._print_frame_link_info(frames_ext, frames_failed_link, self.count_in_data_gps, self.count_linked_data_gps,
+                title = "link of data and gps"
+                self._print_frame_link_info(title, frames_ext, frames_failed_link, self.count_in_data_gps, self.count_linked_data_gps,
                                             self.count_no_link_data_gps, self. count_single_linked_data_gps, self.count_multi_linked_data_gps)
 
         except Exception as e:
-            raise_runtime_error(f"DataLinker.link_data_and_gps - failed to link data and gps: {e}",
-                                self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"DataLinker.link_data_and_gps - failed to link data and gps: {e}",
+                                self.logger)
 
     """
     matching of frame and gps info links based on their count
@@ -294,7 +281,7 @@ class DataLinker(object):
     def _match_frame_with_gps_info(self, frame_ext, gps_possible_link_data):
 
         if frame_ext is None:
-            log_error(f"DataLinker._match_frame_with_gps_info - failed to match links with data because frame is None.")
+            log_error(f"DataLinker._match_frame_with_gps_info - failed to match links with data because frame is None.", self.logger)
             return 0
         
         count_links = len(gps_possible_link_data)
@@ -303,15 +290,15 @@ class DataLinker(object):
             return 0
         elif count_links == 1:
             gps_timestamp = gps_possible_link_data[0]["TIME"]
-            log_warning(f"match of frame {frame_ext.t_ref} with gps taken from one link {gps_timestamp}", self.log_file, self.do_print, self.do_log)
+            log_debug(f"match of frame {frame_ext.t_ref} with gps taken from one link {gps_timestamp}", self.logger)
             self._assing_gps_info_to_frame(frame_ext, gps_possible_link_data[0])
             return 1
         else:
             try:
                 self._match_frame_with_gps_with_time_weighting(frame_ext, gps_possible_link_data)
             except Exception as e:
-                log_error(f"DataLinker._match_frame_with_gps_info - failed to math multiple links. Assigning 1st one. Exp: {e}",
-                            self.log_file, self.do_print, self.do_log)
+                log_debug(f"error - DataLinker._match_frame_with_gps_info - failed to math multiple links. Assigning 1st one. Exp: {e}",
+                            self.logger)
                 self._assing_gps_info_to_frame(frame_ext, gps_possible_link_data[0])
             count_links = 1
         
@@ -326,8 +313,8 @@ class DataLinker(object):
         # elif isinstance(gps_data, list):
         #     frame_ext.gps = gps_data
         else:
-            raise_runtime_error(f"DataLinker._assing_gps_info_to_frame - can not gps info to frame because it is {type(gps_data)}", 
-                        self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"DataLinker._assing_gps_info_to_frame - can not gps info to frame because it is {type(gps_data)}", 
+                        self.logger)
 
     """matching frame with gps links based on time weighting"""
     def _match_frame_with_gps_with_time_weighting(self, frame_ext, gps_data):
@@ -374,23 +361,23 @@ class DataLinker(object):
         msg += f"frame id:           {frame.id}\n"                    
         msg += f"timestamp frame:    {timestamp_frame}\n"
         msg += f"timestamp_ref info:     {timestamp_ref}\n"        
-        log_info(msg, self.log_file, self.do_print, self.do_log)
+        log_info(msg, self.logger)
 
-    def _print_frame_link_info(self, frames : list, frames_failed_link, count_in_frame, count_linked_frames, count_no_linked_frames, 
+    def _print_frame_link_info(self, title, frames : list, frames_failed_link, count_in_frame, count_linked_frames, count_no_linked_frames, 
                                 count_single_linked_frames, count_multi_linked_frames, do_print_frames=False):
         
         msg =   "\n"
-        msg += f"link frame info:\n"
+        msg += f"{title}\n"
         msg += "\n"
         msg += f"count_in_frame:                {count_in_frame}\n"
         msg += f"count_linked_frames:           {count_linked_frames}\t[{calc_portion_in_perc(count_linked_frames, count_in_frame):.2f}%]\n"
         msg += f"count_no_linked_frames:        {count_no_linked_frames}\n"
         msg += f"count_single_linked_frames:    {count_single_linked_frames}\n"   
         msg += f"count_multi_linked_frames:     {count_multi_linked_frames}\n"                     
-        msg += "\n"
-        msg += "frames without link\n"
-        for frame in frames_failed_link:
-            msg += f"\t{frame.t_ref}\t{frame.id}\t{frame.get_count_hit_pixels()}\n"
+        # msg += "\n"
+        # msg += "frames without link\n"
+        # for frame in frames_failed_link:
+        #     msg += f"\t{frame.t_ref}\t{frame.id}\t{frame.get_count_hit_pixels()}\n"
         msg += "\n"
 
         if do_print_frames:
@@ -401,7 +388,7 @@ class DataLinker(object):
 
                 msg += f"\t{frame_ext.t_ref}\t{frame_ext.id}\t{frame_ext.get_count_hit_pixels()}\t{frame_ext.t_acq}\t{addon}\n"
 
-        log_info(msg, self.log_file, self.do_print, self.do_log)
+        log_info(msg, self.logger)
 
     def log_stat(self):
         msg = "\n"
@@ -419,8 +406,7 @@ class DataLinker(object):
         msg += f"count_multi_linked_data_gps:       {self.count_multi_linked_data_gps}\n"   
         msg += f"count_single_linked_data_gps:      {self.count_single_linked_data_gps}\n" 
 
-
-        log_info(msg, self.log_file, self.do_print, self.do_log)
+        log_info(msg, self.logger)
 
         return msg
 
@@ -438,7 +424,7 @@ class DataLinker(object):
         
 
         # remove some unwanted
-        members_dict.pop("log_file")
+        members_dict.pop("logger")
 
         # convert specail objects formats to standard python formats
         for key, value in members_dict.items():

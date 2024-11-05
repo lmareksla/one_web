@@ -16,7 +16,6 @@ from pixel import *
 from frame import *
 from llcp import *
 from decoder import *
-from log import *
 
 
 sys.path.append("src/pxdata/src")
@@ -25,7 +24,7 @@ from utils import *
 
 class DataInfoFile(object):
     """docstring for DataInfoFile"""
-    def __init__(self, file_in_path_name, file_settings_path_name = "", log_path="", log_name="log.txt"):
+    def __init__(self, file_in_path_name, file_settings_path_name = ""):
         self.file_in_path_name = file_in_path_name
         self.file_settings_path_name = file_settings_path_name
 
@@ -71,30 +70,16 @@ class DataInfoFile(object):
         self.max_acq_time = 10000
         self.min_acq_time = 10        
 
-        # log and print
-        self.do_log = True
-        self.do_print = True
-        self.log_file_path = log_path
-        self.log_file_name = log_name
-        self.log_file = None
-
-        try:
-            self._open_log()
-        except Exception as e:
-            log_warning(f"failed to open log {os.path.join(self.log_file_path, self.log_file_name)}: {e}", self.log_file, self.do_print, self.do_log)
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if self.log_file:
-            self.log_file.close()        
-
-    def _open_log(self):
-        self.log_file = open(os.path.join(self.log_file_path, self.log_file_name), "w")
+        self.logger = None
 
     def load(self):
-        log_info(f"loading file: {self.file_in_path_name}", self.log_file, self.do_print, self.do_log)
+        
+        self.logger = create_logger()        
+        
+        log_info(f"loading data info file: {self.file_in_path_name}", self.logger)
 
         if not self.file_in_path_name:
-            raise_runtime_error(f"DataInfoFile.load - fail to load file: {self.file_in_path_name}.", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"DataInfoFile.load - fail to load file: {self.file_in_path_name}.", self.logger)
 
         try:
             self._load_meas_settings()
@@ -106,7 +91,7 @@ class DataInfoFile(object):
             self._add_acq_time()
             self.statistics()
         except Exception as e:
-            raise_runtime_error(f"DataInfoFile.load - fail to load data from: {self.file_in_path_name}. {e}", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"DataInfoFile.load - fail to load data from: {self.file_in_path_name}. {e}", self.logger)
 
         self._done_load = True
 
@@ -138,8 +123,8 @@ class DataInfoFile(object):
     """
     def _correct_data_for_anomalies(self):
         if self.data.empty:
-            raise_runtime_error(f"DataInfoFile._correct_data_for_anomalies - failed to correct for anomalies, because data is empty.", 
-                                self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"DataInfoFile._correct_data_for_anomalies - failed to correct for anomalies, because data is empty.", 
+                                self.logger)
         try:
             row_prev = None
             idx_bad_rows = []
@@ -150,28 +135,28 @@ class DataInfoFile(object):
 
                 # errors
                 if self.do_remove_error_data and not pd.isna(row["Error_id"]):
-                    log_error(f"{timestamp} error frame info",self.log_file, self.do_print, self.do_log)
+                    log_debug(f"{timestamp} error frame info",self.logger)
 
                     self.error_count += 1
                     idx_bad_rows.append(idx)
 
                 # duplicity
                 elif row_prev is not None and row_prev["TIMESTAMP"] == timestamp:
-                    log_error(f"{timestamp} duplicate frame info" ,self.log_file, self.do_print, self.do_log)
+                    log_debug(f"{timestamp} duplicate frame info" ,self.logger)
                     
                     self.count_err_duplicities += 1
                     idx_bad_rows.append(idx)
 
                 # weird/bad temperature
                 elif temperature < -200 or temperature > 200:
-                    log_error(f"{timestamp} weird temperature: {temperature}",self.log_file, self.do_print, self.do_log)
+                    log_debug(f"{timestamp} weird temperature: {temperature}",self.logger)
 
                     self.count_err_bad_temperature += 1
                     idx_bad_rows.append(idx)  
 
                 # no saved pixels - data ussually have something
                 elif count_saved_pix == 0:
-                    log_error(f"{timestamp} no saved pixels: {count_saved_pix}",self.log_file, self.do_print, self.do_log)
+                    log_debug(f"{timestamp} no saved pixels: {count_saved_pix}",self.logger)
 
                     self.count_err_no_saved_pixels += 1
                     idx_bad_rows.append(idx)  
@@ -184,12 +169,12 @@ class DataInfoFile(object):
                 self.data = self.data.reset_index(drop=True)
 
         except Exception as e:
-            raise_runtime_error(f"DataInfoFile._correct_data_for_anomalies - failed to correct for anomalies. {e}",
-                                self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"DataInfoFile._correct_data_for_anomalies - failed to correct for anomalies. {e}",
+                                self.logger)
 
     def _add_acq_time(self):
         if self.data.empty:
-            raise_runtime_error("_add_acq_time : No data loaded.", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log("_add_acq_time : No data loaded.", self.logger)
 
         try:
             if "time_acq_s" not in self.data:
@@ -197,16 +182,14 @@ class DataInfoFile(object):
             for idx, row in self.data.iterrows():
                 self.data.at[idx, "time_acq_s"] = self.extract_acq_time(idx)
         except Exception as e:
-            raise_runtime_error(f"_add_acq_time : failed to add acq time to data. {e}", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"_add_acq_time : failed to add acq time to data. {e}", self.logger)
 
     def extract_acq_time(self, frame_order_id):
-
-        acq_time = -1
 
         try:
             timestamp, temperature, pix_count_short, pix_count_long, pix_count_saved, pix_count_unsaved, error_id = self.get_frame_meas_info(frame_order_id)
         except Exception as e:
-            raise_runtime_error(f"Fail to extract acq time: {frame_order_id}. {e}", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"Fail to extract acq time: {frame_order_id}. {e}", self.logger)
 
         pixels_per_ms = float(pix_count_long - pix_count_short) / float(self.long_acquisition_time - self.short_acquisition_time)
 
@@ -231,12 +214,12 @@ class DataInfoFile(object):
 
     def get_frame_meas_info(self, frame_order_id):
         if self.data.empty:
-            raise_runtime_error("get_frame_meas_info : No data loaded.", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log("get_frame_meas_info : No data loaded.", self.logger)
 
         try:
             row = self.data.iloc[frame_order_id]
         except Exception as e:
-            raise_runtime_error(f"Can not find frame with given id: {frame_order_id}. {e}", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"Can not find frame with given id: {frame_order_id}. {e}", self.logger)
 
         if len(row) >= 6:
             timestamp = convert_str_timestapmp_to_datetime(row["TIMESTAMP"])
@@ -247,7 +230,7 @@ class DataInfoFile(object):
             pix_count_unsaved = int(row.iloc[5])
             error_id = str(row.iloc[6])
         else:
-            raise_runtime_error("Fail to get frame, not all info is included.", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log("Fail to get frame, not all info is included.", self.logger)
 
         return [timestamp, temperature, pix_count_short, pix_count_long, pix_count_saved, pix_count_unsaved, error_id]
 
@@ -332,7 +315,7 @@ class DataInfoFile(object):
         msg += f"count_err_bad_temperature:  {self.count_err_bad_temperature}\n"        
         msg += "===============================================================\n"
 
-        log_info(msg,self.log_file, self.do_print, self.do_log)
+        log_info(msg,self.logger)
         return msg
 
     def export_stat(self, file_out_path_name):
@@ -345,7 +328,7 @@ class DataInfoFile(object):
         members_dict = {}
         
         # remove some unwanted
-        keys_skip = ["log_file", "data"]
+        keys_skip = ["logger", "data"]
 
         # convert specail objects formats to standard python formats
         for key, value in self.__dict__.items():

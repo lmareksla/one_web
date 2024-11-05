@@ -18,7 +18,6 @@ from pixel import *
 from frame import *
 from llcp import *
 from decoder import *
-from log import *
 
 sys.path.append("src/noisy_pixels/src")
 
@@ -42,32 +41,13 @@ class Mask(object):
         self.finder_alg_name = "remove_max_std_diff"
 
         # log and print
-        self.do_log = do_log
-        self.do_print = True
-        self.log_file_path = log_path
-        self.log_file_name = log_name
-        self.log_file = None
-
-        try:
-            self._open_log()
-        except Exception as e:
-            log_warning(f"failed to open log {os.path.join(self.log_file_path, self.log_file_name)}: {e}",
-                        self.log_file, self.do_print, self.do_log)
+        self.logger = create_logger()
 
     def __init_default(self):
         self.matrix = np.ones((self.height, self.width))              # actual mask, ones because it should be applied via multiplication
         self.matrix_noisy_pix = np.zeros((self.height, self.width))   # positions of noisy pixels in matrix
         self.noisy_pix_list = []                                      # list of noisy pixels
         self.done_create = False
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if self.log_file:
-            self.log_file.close()        
-
-    def _open_log(self):
-        if self.do_log:
-            self.log_file = open(os.path.join(self.log_file_path, self.log_file_name), "w")
-
 
     def _reset(self):
         self.__init_default()
@@ -77,7 +57,7 @@ class Mask(object):
     """
     def create(self, frame_data, roi=None):
         if self.done_create:
-            log_warning(f"Mask.create - mask already crated. It will be overwritten.", self.log_file, self.do_print, self.do_log)
+            log_warning(f"Mask.create - mask already crated. It will be overwritten.", self.logger)
             self._reset()
 
         self.roi = roi
@@ -90,11 +70,11 @@ class Mask(object):
 
         elif isinstance(frame_data, np.ndarray):
             if not self._check_same_matrix_shape(sum_frame, frame_data):
-                raise_runtime_error(f"Mask.create - shape check of matrices failed", self.log_file, self.do_print, self.do_log)
+                raise_runtime_log(f"Mask.create - shape check of matrices failed", self.logger)
             sum_frame = frame_data
         
         else:
-            raise_runtime_error(f"Mask.create - unsupported data format of frame_data", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"Mask.create - unsupported data format of frame_data", self.logger)
 
         try:
             # noisy pixels
@@ -105,20 +85,20 @@ class Mask(object):
             if self.roi is not None:
                 self._apply_roi_on_mask()
         except Exception as e:
-            raise_runtime_error(f"Mask.create - falied to use noisy pixels or roi: {e}", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"Mask.create - falied to use noisy pixels or roi: {e}", self.logger)
 
         self.done_create = True
 
     def _create_sum_frame(self, frames : list, sum_frame : np.ndarray):
         if not frames:
-            raise_runtime_error(f"Mask._create_sum_frame - empty frames", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"Mask._create_sum_frame - empty frames", self.logger)
 
         sum_frame = np.zeros((self.height, self.width))
 
         for frame in frames:
 
             if not self._check_same_matrix_shape(sum_frame, frame):
-                log_warning(f"Mask._create_sum_frame - frames has different shapes", self.log_file, self.do_print, self.do_log)
+                log_warning(f"Mask._create_sum_frame - frames has different shapes", self.logger)
                 continue
 
             sum_frame += frame
@@ -130,7 +110,7 @@ class Mask(object):
             return True
 
     def _apply_roi_on_mask(self):
-        if not _check_roi(self.roi):
+        if not self._check_roi(self.roi):
             return
 
         roi_x = self.roi[0]
@@ -145,15 +125,15 @@ class Mask(object):
 
     def _check_roi(self, roi):
         if roi is None:
-            log_error(f"Mask._apply_roi_on_mask - roi is None", self.log_file, self.do_print, self.do_log)
+            log_error(f"Mask._apply_roi_on_mask - roi is None", self.logger)
             return True
 
         elif len(roi) != 2 or len(roi[0]) != 2 or len(roi[1]) != 2:
-            log_error(f"Mask._apply_roi_on_mask - incorrect shape of roi: {roi}", self.log_file, self.do_print, self.do_log)            
+            log_error(f"Mask._apply_roi_on_mask - incorrect shape of roi: {roi}", self.logger)            
             return True
 
         elif roi[0][0] > roi[0][1] or roi[1][0] > roi[1][1]:
-            log_error(f"Mask._apply_roi_on_mask - wrong values of roi: {roi}", self.log_file, self.do_print, self.do_log)            
+            log_error(f"Mask._apply_roi_on_mask - wrong values of roi: {roi}", self.logger)            
             return True
         else:
             return True
@@ -164,7 +144,7 @@ class Mask(object):
     """
     def apply(self, frame_data):
         if not self.done_create:
-            raise_runtime_error(f"Mask.apply - can not be used because mask was not created", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"Mask.apply - can not be used because mask was not created", self.logger)
 
         if isinstance(frame_data, list):
             for matrix in frame_data:
@@ -173,21 +153,21 @@ class Mask(object):
 
         elif isinstance(frame_data, np.ndarray):
             if not self._check_same_matrix_shape(self.matrix, frame_data):
-                raise_runtime_error(f"Mask.create - shape check of matrices failed", self.log_file, self.do_print, self.do_log)
+                raise_runtime_log(f"Mask.create - shape check of matrices failed", self.logger)
             frame_data *= self.matrix
 
         elif isinstance(frame_data, Frame):
             self.apply_on_frame(frame_data)
 
         else:
-            raise_runtime_error(f"Mask.create - unsupported data format of frame_data", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"Mask.create - unsupported data format of frame_data", self.logger)
 
     def apply_on_frame(self, frame : Frame):
         if not frame.matrix:
-            raise_runtime_error(f"Mask.apply_on_frame - no matrix in frame", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"Mask.apply_on_frame - no matrix in frame", self.logger)
 
         if self.width != frame.width or self.height != frame.height:
-            raise_runtime_error(f"Mask.apply_on_frame - incorrect shapes, frame: {frame.width}{frame.height}", 
+            raise_runtime_log(f"Mask.apply_on_frame - incorrect shapes, frame: {frame.width}{frame.height}", 
                                     self.log_file, self.do_print, self.do_log)
 
         for mode, matrix in frame.matrix.items():
@@ -203,11 +183,11 @@ class Mask(object):
     def create_fixed_pattern(self, sum_frames : list, min_noisy_pix_occurance=0, use_roi=True, roi=None):
         for sum_frame in sum_frames:
             if not self._check_same_matrix_shape(sum_frame, self.matrix):
-                raise_runtime_error(f"Mask.create_fixed_pattern - frames has different shapes {sum_frame.shape} and {self.matrix.shape}"
-                                    , self.log_file, self.do_print, self.do_log)
+                raise_runtime_log(f"Mask.create_fixed_pattern - frames has different shapes {sum_frame.shape} and {self.matrix.shape}"
+                                    , self.logger)
 
         if self.done_create:
-            log_warning(f"Mask.create_fixed_pattern - mask already crated. It will be overwritten.", self.log_file, self.do_print, self.do_log)
+            log_warning(f"Mask.create_fixed_pattern - mask already crated. It will be overwritten.", self.logger)
             self._reset()
 
         # roi settings and check
@@ -282,12 +262,12 @@ class Mask(object):
             isinstance(mask_data[0], int) and isinstance(mask_data[1], int): 
             self.__add_noisy_pixel(mask_data[0], mask_data[1])
         else:
-            log_error(f"Mask.add - can not add mask_data because they are in unsupported data type", self.log_file, self.do_print, self.do_log)
+            log_error(f"Mask.add - can not add mask_data because they are in unsupported data type", self.logger)
 
     def __add_mask(self, mask):
 
         if mask.width != self.width or mask.height != self.height:
-            raise_runtime_error(f"Mask.__add_mask - can not add two masks because they have different shapes", 
+            raise_runtime_log(f"Mask.__add_mask - can not add two masks because they have different shapes", 
                                     self.log_file, self.do_print, self.do_log)
 
         self.matrix *=  mask.matrix

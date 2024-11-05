@@ -13,7 +13,6 @@ from pixel import *
 from frame import *
 from llcp import *
 from decoder import *
-from log import *
 
 sys.path.append("src")
 
@@ -36,7 +35,7 @@ class DataPacket(object):
 
 class DataFile(object):
     """docstring for DataFile"""
-    def __init__(self, file_in_path_name, file_settings_path_name=None, file_global_conf_path_name=None, log_path="", log_name="log.txt"):
+    def __init__(self, file_in_path_name, file_settings_path_name=None, file_global_conf_path_name=None):
         super(DataFile, self).__init__()
 
         self.file_in_path_name = file_in_path_name
@@ -97,56 +96,13 @@ class DataFile(object):
         self.file_out_path = ""
 
         # log and print
-        self.do_log = True
-        self.do_print = True
-        self.log_file_path = log_path
-        self.log_file_name = log_name
-        self.log_file = None
-
-        try:
-            self._open_log()
-        except Exception as e:
-            log_warning(f"failed to open log {os.path.join(self.log_file_path, self.log_file_name)}: {e}")
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if self.log_file:
-            self.log_file.close()        
-
-    def _open_log(self):
-        self.log_file = open(os.path.join(self.log_file_path, self.log_file_name), "w")
-
-    def _load_meas_settings(self):
-
-        if self.file_settings_path_name is None:
-            return
-
-        try:
-            with open(self.file_settings_path_name, "r") as file_json:
-                meas_set_data = json.load(file_json)
-
-                self.meas_mode = Tpx3FrameMode(meas_set_data["meas_mode"])
-
-        except Exception as e:
-            print(f"Can not load meas settings. Using default. {e}")
-
-    def _load_meas_global_cofig(self):
-
-        if self.file_global_conf_path_name is None:
-            return
-
-        try:
-            with open(self.file_global_conf_path_name, "r") as file_json:
-                meas_set_data = json.load(file_json)
-
-                self.frame_id_global_ref = meas_set_data["frame_id_global_ref"]
-
-                self.frame_id_prev = self.frame_id_global_ref
-
-        except Exception as e:
-            print(f"Can not load global config. Using default. {e}")
+        self.logger = None
 
     def load(self):
-        log_info(f"loading file: {self.file_in_path_name}", self.log_file, self.do_print, self.do_log)
+        
+        self.logger = create_logger()        
+        
+        log_info(f"loading data file: {self.file_in_path_name}", self.logger)
 
         self._load_meas_settings()
         self._load_meas_global_cofig() # uncomment this line if processing should account for gobal frame id and run single thread!
@@ -159,11 +115,11 @@ class DataFile(object):
 
         try:
             infile = open(self.file_in_path_name, "r", encoding="ascii")
-        except:
-            log_error(f"can not open input file {self.file_in_path_name}")
-            exit()
+        except Exception as e:
+            raise_exception_log(f"can not open input file {self.file_in_path_name}, {e}", self.logger)
 
         csv_reader = csv.reader(infile)
+        lines_count = count_csv_lines(self.file_in_path_name)
 
         data = ""
         timestamp_list = []
@@ -171,6 +127,8 @@ class DataFile(object):
         data_idx_shift = 0  # data idx shift with respect to the original file and needed for timestamp 
 
         for idx, row in enumerate(csv_reader):
+
+            progress_bar(lines_count, idx)
 
             # skip empty lines
             if len(row) < 2:
@@ -192,7 +150,7 @@ class DataFile(object):
             timestamp_list.append(timestamp)
 
             if self.batch_separator in row_data:
-                log_info(f"{timestamp}    OBC terminator position {idx}", self.log_file, self.do_print, self.do_log)
+                log_debug(f"OBC terminator position {idx}", self.logger)
 
                 separator_index = row_data.index(self.batch_separator)
                 data += row_data[0:separator_index]
@@ -220,16 +178,46 @@ class DataFile(object):
         self._done_load = True
 
         infile.close()
+        
+        log_info("loading data file is finished", self.logger)
 
-        # exit(0)
+    def _load_meas_settings(self):
+
+        if self.file_settings_path_name is None:
+            return
+
+        try:
+            with open(self.file_settings_path_name, "r") as file_json:
+                meas_set_data = json.load(file_json)
+
+                self.meas_mode = Tpx3FrameMode(meas_set_data["meas_mode"])
+
+        except Exception as e:
+            log_warning(f"Can not load meas settings. Using default. {e}", self.logger)
+
+    def _load_meas_global_cofig(self):
+
+        if self.file_global_conf_path_name is None:
+            return
+
+        try:
+            with open(self.file_global_conf_path_name, "r") as file_json:
+                meas_set_data = json.load(file_json)
+
+                self.frame_id_global_ref = meas_set_data["frame_id_global_ref"]
+
+                self.frame_id_prev = self.frame_id_global_ref
+
+        except Exception as e:
+            raise_exception_log(f"Can not load global config. Using default. {e}", self.logger)
 
     """gets the size of data line"""
     def _find_size_of_data_line(self):
         try:
             infile = open(self.file_in_path_name, "r", encoding="ascii")
-        except:
-            log_error(f"can not open input file {self.file_in_path_name}", self.log_file, self.do_print, self.do_log)
-            exit()        
+        except Exception as e:
+            raise_exception_log(f"can not open input file {self.file_in_path_name}, {e}", self.logger)
+
         csv_reader = csv.reader(infile)
 
         for idx, row in enumerate(csv_reader):
@@ -258,7 +246,7 @@ class DataFile(object):
         try:
             byte_stream = binascii.unhexlify(data)
         except:
-            log_error(f"unhexification failed on data at timestamp {timestamp}", self.log_file, self.do_print, self.do_log)
+            log_error(f"unhexification failed on data at timestamp {timestamp}", self.logger)
             return 
         
         idx = 0
@@ -273,44 +261,46 @@ class DataFile(object):
             # help msgs - status, temperature, errors etc
             if self.do_decode_help_msg:
                 if byte_stream[idx] == LLCP_STATUS_MSG_ID:
-                    log_info(f"{timestamp}    status", self.log_file, self.do_print, self.do_log)
+                    log_debug(f"status", self.logger)
                     idx = idx + LLCP_STATUS_MSG_SIZE
                     continue
 
                 if byte_stream[idx] == LLCP_TEMPERATURE_MSG_ID:
                     temperature = bytes_to_int16(byte_stream[idx+2], byte_stream[idx+1])
-                    log_info(f"{timestamp}    temperature: {temperature}", self.log_file, self.do_print, self.do_log)
+                    log_debug(f"temperature: {temperature}", self.logger)
                     idx = idx + LLCP_TEMPERATURE_MSG_SIZE
                     continue
 
                 if byte_stream[idx] == LLCP_FRAME_DATA_TERMINATOR_MSG_ID:
                     frame_id = bytes_to_int16(byte_stream[idx+2], byte_stream[idx+1])
                     num_of_packets = bytes_to_int16(byte_stream[idx+4], byte_stream[idx+3])
-                    log_info(f"{timestamp}    data terminator: frame_id {frame_id}, num_of_packets {num_of_packets}", self.log_file, self.do_print, self.do_log)
+                    log_debug(f"data terminator: frame_id {frame_id}, num_of_packets {num_of_packets}", self.logger)
                     idx = idx + LLCP_FRAME_DATA_TERMINATOR_MSG_SIZE
                     continue
 
                 if byte_stream[idx] == LLCP_FRAME_MEASUREMENT_FINISHED_MSG_ID:
-                    log_info(f"{timestamp}    measurement finished", self.log_file, self.do_print, self.do_log)
+                    log_debug(f"measurement finished", self.logger)
                     idx = idx + LLCP_FRAME_MEASUREMENT_FINISHED_MSG_SIZE
                     continue
 
                 if byte_stream[idx] == LLCP_ACK_MSG_ID:
-                    log_info(f"{timestamp}    ack", self.log_file, self.do_print, self.do_log)
+                    log_debug(f"ack", self.logger)
                     idx = idx + LLCP_ACK_MSG_SIZE
                     continue
 
                 if byte_stream[idx] == LLCP_MINIPIX_ERROR_MSG_ID:
                     error_id = byte_stream[idx+1]
-                    log_error(f"{timestamp}    error: {error_id}", self.log_file, self.do_print, self.do_log)
-                    try:    log_error(f"\t error typr {error_id}", self.log_file, self.do_print, self.do_log)
-                    except: pass
+                    log_error(f"error: {error_id}", self.logger)
+                    try:    
+                        log_error(f"\t error type {error_id}", self.logger)
+                    except: 
+                        pass
                     idx = idx + LLCP_MINIPIX_ERROR_MSG_SIZE
                     continue
 
             # data packets
             if byte_stream[idx] == LLCP_FRAME_DATA_MSG_ID:
-                log_info(f"{timestamp}    data packet: idx {idx}", self.log_file, self.do_print, self.do_log)
+                log_debug(f"data packet: idx {idx}", self.logger)
 
                 try:
                     data_packet, idx = self._extract_data_packet_from_byte_stream(byte_stream, idx, timestamp)
@@ -319,7 +309,7 @@ class DataFile(object):
                 except Exception as e:
                     self.count_err_load_data_pck += 1
                     idx += 8
-                    log_error(f"failed to extract data packet: {e}", self.log_file, self.do_print, self.do_log)
+                    log_debug(f"failed to extract data packet: {e}", self.logger)
 
                 continue
 
@@ -336,12 +326,12 @@ class DataFile(object):
         if timestamp_idx < len(timestamp_list):
             return timestamp_list[timestamp_idx], timestamp_idx
         else:
-            log_warning(f"failed to get timestamp for current data - last timestamp {timestamp_list[-1]}", self.log_file, self.do_print, self.do_log)
+            log_debug(f"failed to get timestamp for current data - last timestamp {timestamp_list[-1]}", self.logger)
             return None, timestamp_idx
 
     def _extract_data_packet_from_byte_stream(self, byte_stream, idx, timestamp ):
         if len(byte_stream) < idx+7:
-            log_error(f"{timestamp}    failed to read data packet because stream is short {len(byte_stream)} vs {idx}+7", self.log_file, self.do_print, self.do_log)
+            log_debug(f"failed to read data packet because stream is short {len(byte_stream)} vs {idx}+7", self.logger)
             self.count_err_load_data_pck += 1
             idx += len(byte_stream) - idx  # ends reading
             return None, idx
@@ -350,22 +340,27 @@ class DataFile(object):
 
         # extract the bytes
         # the following ones are not encoded and can be just copied
-        data_packet.frame_id         = bytes_to_int16(byte_stream[idx+2], byte_stream[idx+1])
-        data_packet.packet_id        = bytes_to_int16(byte_stream[idx+4], byte_stream[idx+3])
-        data_packet.mode             = Tpx3FrameMode(byte_stream[idx+5])
-        data_packet.n_pixels         = byte_stream[idx+6]
-        data_packet.checksum_matched = byte_stream[idx+7]
-        data_packet.timestamp        = timestamp 
+        try:
+            data_packet.frame_id         = bytes_to_int16(byte_stream[idx+2], byte_stream[idx+1])
+            data_packet.packet_id        = bytes_to_int16(byte_stream[idx+4], byte_stream[idx+3])
+            data_packet.mode             = Tpx3FrameMode(byte_stream[idx+5])
+            data_packet.n_pixels         = byte_stream[idx+6]
+            data_packet.checksum_matched = byte_stream[idx+7]
+            data_packet.timestamp        = timestamp 
+        except Exception as e:
+            log_debug(f"failed to save data from byte stream", self.logger)
+            idx += 8
+            return None, idx            
 
         # skip wrong mode frames
         if self.do_force_single_mode and data_packet.mode != self.meas_mode:
-            log_warning(f"{timestamp}    skipping frame in mode {data_packet.mode}, expected {self.meas_mode}", self.log_file, self.do_print, self.do_log)
+            log_debug(f"skipping frame in mode {data_packet.mode}, expected {self.meas_mode}", self.logger)
             idx += 8
             return None, idx
            
         # skip empty frames
         if self.do_skip_empty_data_packets and data_packet.n_pixels == 0:
-            log_warning(f"{timestamp}    skipping empty data packet", self.log_file, self.do_print, self.do_log)            
+            log_debug(f"skipping empty data packet", self.logger)            
             idx += 8
             return None, idx
 
@@ -389,7 +384,7 @@ class DataFile(object):
                     final_idx = data_start + pix_idx*6 + pix_byte_idx
                     pixel_data.append(byte_stream[final_idx])
                 except:
-                    log_error(f"{timestamp}    pixel decoding error {final_idx}", self.log_file, self.do_print, self.do_log)
+                    log_debug(f"pixel decoding error {final_idx}", self.logger)
                     decoding_error = True
                     continue
 
@@ -431,15 +426,15 @@ class DataFile(object):
     """
     def _check_and_correct_data_packets_integrity(self):
         if not self.frames_data_packets:
-            log_warning(f"no data packets were given for integrity check", self.log_file, self.do_print, self.do_log)
+            log_warning(f"no data packets were given for integrity check", self.logger)
             return []
 
         frame_id_ref = -1
         data_packet_id_prev = -1
         data_packet_prev = None
 
-        is_currupted_frame = False
-        idx_currupted_data_packets = []
+        is_corrupted_frame = False
+        idx_corrupted_data_packets = []
 
         for idx, data_packet in enumerate(self.frames_data_packets):
             
@@ -447,28 +442,28 @@ class DataFile(object):
 
                 is_next_data_packet = (data_packet.packet_id - data_packet_id_prev) == 1
 
-                if is_currupted_frame:
-                    idx_currupted_data_packets.append(idx)
+                if is_corrupted_frame:
+                    idx_corrupted_data_packets.append(idx)
                 # if it is not next data packet then something might be missing -> corrupted frame
                 elif not is_next_data_packet: 
-                    is_currupted_frame = True
+                    is_corrupted_frame = True
 
                     # most likely duplicity data
                     if data_packet_id_prev > data_packet.packet_id:
-                        log_error(f"corrupted frame {data_packet.frame_id} - duplicity: packet id {data_packet.packet_id} is less then previous {data_packet_id_prev}: {data_packet.timestamp}",
-                                  self.log_file, self.do_print, self.do_log)
-                        idx_currupted_data_packets.append(idx)
+                        log_debug(f"corrupted frame {data_packet.frame_id} - duplicity: packet id {data_packet.packet_id} is less then previous {data_packet_id_prev}: {data_packet.timestamp}",
+                                  self.logger)
+                        idx_corrupted_data_packets.append(idx)
 
                         # stat
                         self.count_err_data_duplicity += 1  
 
                     # missing data packet in order                      
                     else:
-                        log_error(f"corrupted frame {data_packet.frame_id} - missing packet: packet id {data_packet.packet_id} jump with respect to prev {data_packet_id_prev}: {data_packet.timestamp}",
-                                  self.log_file, self.do_print, self.do_log)     
+                        log_debug(f"corrupted frame {data_packet.frame_id} - missing packet: packet id {data_packet.packet_id} jump with respect to prev {data_packet_id_prev}: {data_packet.timestamp}",
+                                  self.logger)     
 
-                        idx_currupted_data_packets += list(range( idx - (data_packet_id_prev+1) , idx))  # idxs of previous data packets
-                        idx_currupted_data_packets.append(idx)
+                        idx_corrupted_data_packets += list(range( idx - (data_packet_id_prev+1) , idx))  # idxs of previous data packets
+                        idx_corrupted_data_packets.append(idx)
 
                         # stat
                         self.count_err_integrity_check_frames_miss += 1
@@ -477,30 +472,30 @@ class DataFile(object):
 
             # new frame
             else:
-                is_currupted_frame = False
+                is_corrupted_frame = False
                 frame_id_ref = data_packet.frame_id
 
                 # check for missing terminator of previous frame
                 if data_packet_prev and not data_packet_prev.do_include_terminator:
                     # check whether it was not already covered with other checks (missing 0 etc)
-                    if idx-1 not in idx_currupted_data_packets:
-                        log_error(f"corrupted frame {data_packet.frame_id} - packet id {data_packet.packet_id} is last but not terminator: {data_packet.timestamp}",
-                                self.log_file, self.do_print, self.do_log)
+                    if idx-1 not in idx_corrupted_data_packets:
+                        log_debug(f"corrupted frame {data_packet.frame_id} - packet id {data_packet.packet_id} is last but not terminator: {data_packet.timestamp}",
+                                self.logger)
 
                         prev_idx = idx-1
-                        idx_currupted_data_packets += list(range(prev_idx - data_packet_prev.packet_id+1, prev_idx+1))  # idxs of all data packets
-                        # idx_currupted_data_packets.append(prev_idx)
+                        idx_corrupted_data_packets += list(range(prev_idx - data_packet_prev.packet_id+1, prev_idx+1))  # idxs of all data packets
+                        # idx_corrupted_data_packets.append(prev_idx)
 
                         # stat
                         self.count_err_integrity_check_frames_term += 1
 
                 # check whether first data packet is with id 0 if not -> corrupted frame
                 if data_packet.packet_id != 0:
-                    log_error(f"corrupted frame {data_packet.frame_id} - packet id {data_packet.packet_id} does not start with 0: {data_packet.timestamp}",
-                              self.log_file, self.do_print, self.do_log)
+                    log_debug(f"corrupted frame {data_packet.frame_id} - packet id {data_packet.packet_id} does not start with 0: {data_packet.timestamp}",
+                              self.logger)
 
-                    is_currupted_frame = True
-                    idx_currupted_data_packets.append(idx)
+                    is_corrupted_frame = True
+                    idx_corrupted_data_packets.append(idx)
                     
                     # stat
                     self.count_err_integrity_check_frames_zero += 1
@@ -508,15 +503,15 @@ class DataFile(object):
             data_packet_prev = data_packet
             data_packet_id_prev = data_packet.packet_id
 
-        if idx_currupted_data_packets:
-            self._correct_data_packtes(idx_currupted_data_packets)
+        if idx_corrupted_data_packets:
+            self._correct_data_packtes(idx_corrupted_data_packets)
 
     """removes data packets from list which were marked as part of corrupted frame"""
-    def _correct_data_packtes(self, idx_currupted_data_packets):
-        frame_id_ref = self.frames_data_packets[idx_currupted_data_packets[-1]].frame_id
+    def _correct_data_packtes(self, idx_corrupted_data_packets):
+        frame_id_ref = self.frames_data_packets[idx_corrupted_data_packets[-1]].frame_id
 
         try:
-            for idx in reversed(idx_currupted_data_packets):
+            for idx in reversed(idx_corrupted_data_packets):
 
                 data_packet_corrupted = self.frames_data_packets[idx]
 
@@ -527,7 +522,7 @@ class DataFile(object):
                 self.frames_data_packets.pop(idx)     
         except Exception as e:
             log_error(f"failed to remove all data packets {e}",
-                        self.log_file, self.do_print, self.do_log)  
+                        self.logger)  
             exit(1)         
 
     def _convert_data_packets_into_frames(self):
@@ -637,7 +632,7 @@ class DataFile(object):
         msg += f"  * count of ERROR duplicities:        {self.count_err_data_duplicity}\n"
         msg += f"  * count of ERROR lost frames bs id:  {int(self.cout_err_lost_frames_based_id)}\n"
 
-        log_info(msg, self.log_file, self.do_print, self.do_log)
+        log_info(msg, self.logger)
 
         return msg
 
@@ -648,7 +643,7 @@ class DataFile(object):
             n_pixels = frame.get_count_hit_pixels()
             msg += f"  {idx}\t{frame.t_ref}\t{frame.id}\t{frame.mode}\t{n_pixels}\n"
 
-        log_info(msg, self.log_file, self.do_print, self.do_log)
+        log_info(msg, self.logger)
         return msg
 
     def export_stat(self, file_out_path_name):
@@ -672,7 +667,7 @@ class DataFile(object):
         members_dict = {}
 
         # remove some unwanted
-        keys_skip = ["log_file", "frames", "decoder", "frames_data_packets"]
+        keys_skip = ["log_file", "frames", "decoder", "frames_data_packets", "logger"]
 
         # convert specail objects formats to standard python formats
         for key, value in self.__dict__.items():

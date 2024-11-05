@@ -9,6 +9,8 @@ import datetime
 import re
 import shutil
 import numpy as np
+from pathlib import Path
+import zipfile
 
 import coloredlogs
 
@@ -73,8 +75,6 @@ def check(done_attr = None):
 
 def get_logger_default_name(log_env_tag : str = "ONE_WEB_LOGGER"):
     logger_name = os.environ.get(log_env_tag)
-    if logger_name is None:
-        logger_name = "__name__"
     return logger_name
 
 def create_logger(  
@@ -87,11 +87,15 @@ def create_logger(
     Creates logger.
     """
 
+    system_logger_name = get_logger_default_name(log_env_tag)
+    if system_logger_name:
+        return logging.getLogger(system_logger_name)
+
     os.environ[log_env_tag] = logger_name
 
     logger = logging.getLogger(logger_name)
     logger.setLevel(log_level)
-    log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    log_format = "%(asctime)s - %(levelname)s - %(message)s"
     formatter = logging.Formatter(log_format)
 
     file_handler = logging.FileHandler(log_path_name)
@@ -154,6 +158,16 @@ def log_debug(
     full_message = create_func_msg(msg, 2)
     if logger is not None:    
         logger.debug(full_message)
+
+def log_info(  
+    msg : str,    
+    logger : logging.Logger
+    ):
+
+    if logger is not None:    
+        logger.info(msg)
+    else:
+        print(msg)
 
 def log_warning(
     msg : str, 
@@ -256,3 +270,53 @@ def convert_np_to_plt_hist2d(hist_np, x_edges_np, y_edges_np):
         x_edges_plt.extend([x_edges_np[idx]]*(len(y_edges_np)-1))
 
     return hist_plt, x_edges_plt, y_edges_plt    
+
+def check_list_str_in_str(list_str, str_main):
+    for str_item in list_str:
+        if str_item in str_main:
+            return True
+    return False
+
+def replace_in_files_name(
+    directory : str
+    ,old_part : str
+    ,new_part : str
+    ):
+    
+    for root, dirs, files in os.walk(directory):
+        for filename in files:
+            if old_part in filename:
+                old_path = os.path.join(root, filename)
+                new_filename = filename.replace(old_part, new_part)
+                new_path = os.path.join(root, new_filename)
+                os.rename(old_path, new_path)
+                
+        
+def check_directory_exists(dir_path):
+    """Check if a directory exists using pathlib."""
+    directory = Path(dir_path)
+    if directory.is_dir():
+        return True
+    else:
+        return False        
+    
+
+def count_csv_lines(file_path, exclude_header=True):
+    """
+    Counts the number of lines in a CSV file.
+
+    Parameters:
+    - file_path (str): Path to the CSV file.
+    - exclude_header (bool): If True, excludes the header row from the count.
+
+    Returns:
+    - int: The number of lines in the CSV file (excluding header if specified).
+    """
+    with open(file_path, 'r') as infile:
+        line_count = sum(1 for _ in infile)
+        
+    # Subtract one if excluding the header
+    if exclude_header:
+        line_count -= 1
+        
+    return line_count

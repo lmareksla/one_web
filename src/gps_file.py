@@ -16,16 +16,34 @@ from pixel import *
 from frame import *
 from llcp import *
 from decoder import *
-from log import *
 
 sys.path.append("src")
 
 from utils import *
 from gps_spice import *
 
+
+
+
+class GpsTransformAlg(Enum):
+    """
+    Switch between different gps transform algorithms/packages. 
+    """
+    ASTROPY=0   # astropy - 10x longer calc
+    SPICE=1     # spice
+
+
 class GpsFile(object):
-    """docstring for GpsFile"""
-    def __init__(self, file_in_path_name, log_path="", log_name="log.txt"):
+    """
+    Docstring for GpsFile.
+    """
+    
+    def __init__(
+        self
+        ,file_in_path_name : str
+        ,gps_transform_alg : GpsTransformAlg = GpsTransformAlg.ASTROPY 
+        ):
+        
         self.file_in_path_name = file_in_path_name
         
         self.data = pd.DataFrame()
@@ -45,50 +63,41 @@ class GpsFile(object):
         self.count_err_time_jumps = 0      # count of time jumps in the data -> more that 5s diff   
         self.count_err_wrong_val = 0
 
+        self.__gps_transform_alg = gps_transform_alg
+
         # log and print
-        self.do_log = True
-        self.do_print = True
-        self.log_file_path = log_path
-        self.log_file_name = log_name
-        self.log_file = None
-
-        try:
-            self._open_log()
-        except Exception as e:
-            log_warning(f"failed to open log {os.path.join(self.log_file_path, self.log_file_name)}: {e}",
-                        self.log_file, self.do_print, self.do_log)
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if self.log_file:
-            self.log_file.close()        
-
-    def _open_log(self):
-        self.log_file = open(os.path.join(self.log_file_path, self.log_file_name), "w")
+        self.logger = None
 
     def load(self):
-        log_info(f"loading file: {self.file_in_path_name}", self.log_file, self.do_print, self.do_log)
+        
+        self.logger = create_logger()
+        
+        log_info(f"loading gps file: {self.file_in_path_name}", self.logger)
 
         if not self.file_in_path_name:
-            raise_runtime_error(f"GpsFile.load - fail to load file: {self.file_in_path_name}.", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"fail to load file: {self.file_in_path_name}.", self.logger)
 
         try:
             self.data = pd.read_csv(self.file_in_path_name, sep=",")             
-            self._correct_data_for_anomalies()     
-            self._extend_data_with_lat_long_alt()
+            self.__find_anomalies_in_data()     
+            self.__extend_data_with_lat_long_alt()
             self.statistics()
         except Exception as e:
-            raise_runtime_error(f"GpsFile.load - fail to load data from: {self.file_in_path_name}. {e}", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"failed to load data from: {self.file_in_path_name}. {e}", self.logger)
 
         self._done_load = True
 
-
-    """correct data for anomalies:
-        * duplicities
-    """
-    def _correct_data_for_anomalies(self):
+    def __find_anomalies_in_data(self):
+        """
+        Correct/log data for anomalies:
+            * duplicities
+            * jumps in time
+            * wrong values
+        """
+        
         if self.data.empty:
-            raise_runtime_error(f"GpsFile._correct_data_for_anomalies - failed to correct for anomalies, because data is empty.",
-                                self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"failed to correct for anomalies, because data is empty.", self.logger)
+            
         try:
             row_prev = None
             idx_bad_rows = []
@@ -100,7 +109,7 @@ class GpsFile(object):
 
                 # duplicity
                 if row_prev is not None and row_prev["TIME"] == timestamp:
-                    log_error(f"{timestamp} duplicate frame info" ,self.log_file, self.do_print, self.do_log)
+                    log_debug(f"error - duplicate frame info", self.logger)
                     
                     self.count_err_duplicities += 1
                     idx_bad_rows.append(idx)
@@ -108,13 +117,13 @@ class GpsFile(object):
                 # jumps in time
                 if row_prev is not None and (datetime_diff_seconds(dt_timestamp,dt_timestamp_prev) > 10 or \
                    datetime_diff_seconds(dt_timestamp,dt_timestamp_prev) < 0):
-                    log_error(f"{timestamp} time jump in gps info {datetime_diff_seconds(dt_timestamp,dt_timestamp_prev)} s" ,self.log_file, self.do_print, self.do_log)
+                    log_debug(f"error - time jump in gps info {datetime_diff_seconds(dt_timestamp,dt_timestamp_prev)} s", self.logger)
 
                     self.count_err_time_jumps += 1
 
                 # wrong values
                 if not row["TIME"] or pd.isna(row["J2000_X (m)"]) or pd.isna(row["J2000_Y (m)"]) or pd.isna(row["J2000_Z (m)"]):
-                    log_error(f"{timestamp} wrong values {row}" ,self.log_file, self.do_print, self.do_log)
+                    log_debug(f"error - wrong values \n{row}", self.logger)
 
                     self.count_err_wrong_val += 1
                     idx_bad_rows.append(idx)
@@ -126,17 +135,16 @@ class GpsFile(object):
                 self.data = self.data.reset_index(drop=True)
 
         except Exception as e:
-            raise_runtime_error(f"GpsFile._correct_data_for_anomalies - failed to correct for anomalies. {e}",
-                                self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"failed to correct for anomalies. {e}", self.logger)
 
     def extract_acq_time(self, frame_order_id):
-
-        acq_time = -1
-
+        """
+        Extracts acq time from info.
+        """
         try:
             timestamp, temperature, pix_count_short, pix_count_long, pix_count_saved, pix_count_unsaved, error_id = self.get_frame_meas_info(frame_order_id)
         except Exception as e:
-            raise_runtime_error(f"Fail to extract acq time: {frame_order_id}. {e}", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log(f"failed to extract acq time: {frame_order_id}. {e}", self.logger)
 
         pixels_per_ms = float(pix_count_long - pix_count_short) / float(self.long_acquisition_time - self.short_acquisition_time)
 
@@ -156,14 +164,16 @@ class GpsFile(object):
 
         return desired_ms/1000.0
 
-    """extension of data with converted J2000 into latitude longitude and altitude based on spice"""
-    def _extend_data_with_lat_long_alt(self):
-        if self.data.empty:
-            raise_runtime_error(f"GpsFile._extend_data_with_lat_long_alt - failed because data was not loaded", self.log_file, self.do_print, self.do_log)
+    def __extend_data_with_lat_long_alt(self):
+        """
+        Extension of data with converted J2000 into latitude longitude and altitude based on spice.
+        """
         
-        log_info("Extending data with lat long alt",self.log_file, self.do_print, self.do_log)
+        if self.data.empty:
+            raise_runtime_log(f"failed because data was not loaded", self.logger)
+        
+        log_info("extending data with lat long alt",self.logger)
 
- 
         longitude_key = "longitude_deg"
         latitude_key = "latitude_deg"
         altitude_key =  "altitude_km"
@@ -180,17 +190,23 @@ class GpsFile(object):
             progress_bar(len(self.data), idx)
             
             vec_J2000 = np.array([row["J2000_X (m)"], row["J2000_Y (m)"], row["J2000_Z (m)"]])
-            vec_altlonglat = transform_J2000_to_ITRF93_altlonglat(vec_J2000, row["TIME"])  # spice
-            # vec_altlonglat = transform_J2000_to_altlonglat_astropy(vec_J2000, row["TIME"].strip())   # astropy - 4x longer calc
+            
+            if self.__gps_transform_alg == GpsTransformAlg.ASTROPY : 
+                vec_altlonglat = transform_J2000_to_altlonglat_astropy(vec_J2000, row["TIME"].strip())   
+            elif self.__gps_transform_alg == GpsTransformAlg.SPICE:
+                vec_altlonglat = transform_J2000_to_ITRF93_altlonglat(vec_J2000, row["TIME"])           
+            else:
+                raise_exception_log("", self.logger)
 
             self.data.at[idx, altitude_key] = vec_altlonglat[0]
             self.data.at[idx, longitude_key] = vec_altlonglat[1]
             self.data.at[idx, latitude_key] = vec_altlonglat[2]
 
+        log_info("\n extension finished", self.logger)
 
     def statistics(self):
         if self.data.empty:
-            raise_runtime_error("statistics : No data loaded.", self.log_file, self.do_print, self.do_log)
+            raise_runtime_log("statistics : No data loaded.", self.logger)
 
         self.frame_count = len(self.data)
            
@@ -224,7 +240,7 @@ class GpsFile(object):
         msg += f"count_err_time_jumps:       {self.count_err_time_jumps}\n"        
         msg += "===============================================================\n"
 
-        log_info(msg,self.log_file, self.do_print, self.do_log)
+        log_info(msg,self.logger)
         return msg
 
     def get_done_load(self):
@@ -240,7 +256,7 @@ class GpsFile(object):
         members_dict = {}
         
         # remove some unwanted
-        keys_skip = ["log_file", "data"]
+        keys_skip = ["logger", "data"]
 
         # convert specail objects formats to standard python formats
         for key, value in self.__dict__.items():
@@ -252,6 +268,8 @@ class GpsFile(object):
                 members_dict[key] = int(value)
             elif isinstance(value, datetime.datetime):
                 members_dict[key] =  value.isoformat() 
+            elif isinstance(value, GpsTransformAlg):
+                members_dict[key] =  value.value                
             else:
                 members_dict[key] = value
 
