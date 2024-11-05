@@ -190,7 +190,7 @@ class ProcessingManager(object):
         if platform.system() == "Linux":
             os.system(f"chmod +x {self.clusterer}")
             os.system(f"chmod +x {self.dpe_path}/DPE")
-            os.system(f"chmod +x {self.dpe_path}")
+            os.system(f"chmod +x {self.dpe_path}/dpe.sh")
                     
         # global config and multi threading
         if self.__do_use_global_id and self.__do_multi_thread:
@@ -896,7 +896,7 @@ class ProcessingManager(object):
                     ,"dir_phys" :             dir_phys   
                     ,"dir_proc_dpe_name" :    self.dir_proc_dpe_name    
                     ,"roi" :                  self.roi
-                    ,"time_samplings_hours" : [0.2]#[0.2,0.5, 1, 2, 4, 8, 12, 24] 
+                    ,"time_samplings_hours" : [0.2,0.5, 1, 2, 4, 8, 12, 24] 
                 }
         
         phys_time.create_phys_time(
