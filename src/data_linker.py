@@ -86,17 +86,17 @@ class DataLinker(object):
         self._link_data_and_info(data_file, info_file, frames_ext, do_print_info=do_print_info)
         self._link_data_and_gps(data_file, gps_file, frames_ext, do_print_info=do_print_info)
 
-    """
-    links data file and data info file and fills final frames into 
-    frames ext given by user
-    """
+
     def _link_data_and_info(self, data_file : DataFile, info_file : DataInfoFile, frames_ext : list, do_print_info=False):
+        """
+        Links data file and data info file and fills final frames into.
+        Frames ext given by user.
+        """
+        
         if data_file is None or info_file is None:
-            raise_runtime_log(f"DataLinker.link_data_and_info - failed because none data {data_file} or info  {info_file}", 
-                                self.logger)
+            raise_runtime_log(f"none data {data_file} or info  {info_file}", self.logger)
         if not data_file.get_done_load() or not info_file.get_done_load():
-            raise_runtime_log(f"DataLinker.link_data_and_info - failed because not loaded data {data_file.get_done_load()} or info {info_file.get_done_load()}", 
-                                self.logger)
+            raise_runtime_log(f"no loaded data {data_file.get_done_load()} or info {info_file.get_done_load()}", self.logger)
 
         try:
             frames_failed_link = []
@@ -204,17 +204,16 @@ class DataLinker(object):
         print(f"min value of hit pixels  {counts_hit_pixels.min()}")
         print(f"max value of hit pixels  {counts_hit_pixels.max()}")
 
-    """
-    links data file and gps info file and fills final frames into 
-    frames ext given by user
-    """
-    def _link_data_and_gps(self, data_file : DataFile, gps_file : GpsFile, frames_ext : list, do_print_info=False):
+    def _link_data_and_gps(self, data_file : DataFile, gps_file : GpsFile, frames_ext : list, do_print_info : bool =False):
+        """
+        links data file and gps info file and fills final frames into 
+        frames ext given by user
+        """
+
         if data_file is None or gps_file is None:
-            raise_runtime_log(f"DataLinker.link_data_and_gps - failed because none data {data_file} or gps  {gps_file}", 
-                                self.logger)
+            raise_runtime_log(f"none data {data_file} or gps  {gps_file}", self.logger)
         if not data_file.get_done_load() or not gps_file.get_done_load():
-            raise_runtime_log(f"DataLinker.link_data_and_gps - failed because not loaded data {data_file.get_done_load()} or gps {gps_file.get_done_load()}", 
-                                self.logger)
+            raise_runtime_log(f"not loaded data {data_file.get_done_load()} or gps {gps_file.get_done_load()}", self.logger)
 
         try:
             frames_failed_link = []
@@ -426,7 +425,7 @@ class DataLinker(object):
         # remove some unwanted
         members_dict.pop("logger")
 
-        # convert specail objects formats to standard python formats
+        # convert special objects formats to standard python formats
         for key, value in members_dict.items():
             if isinstance(value, np.int64):
                 members_dict[key] = int(value)
